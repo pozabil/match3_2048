@@ -1,7 +1,6 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const utils = @import("../core/utils.zig");
-const match_lines = @import("../core/match_lines.zig");
 const engine = @import("../core/engine.zig");
 const animations = @import("../ui/animations.zig");
 
@@ -57,22 +56,21 @@ pub fn planPlayerTurn(
         try appendFallPhase(anim, &preview.board_after_resolve, &work.board);
 
         work.stats.moves += 1;
-        try appendCascadePhases(&work, allocator, rng, .{ .source = .auto }, anim);
+        _ = try appendCascadePhases(&work, allocator, rng, .{ .source = .auto }, anim);
         try appendPostMoveResolutionPhases(&work, allocator, rng, anim);
         return work;
     }
 
-    if (!match_lines.hasAnyLineMatch(&work.board)) {
-        anim.clearPresentation();
-        return error.InvalidMoveNoMatch;
-    }
-
-    work.stats.moves += 1;
-    try appendCascadePhases(&work, allocator, rng, .{
+    const had_match = try appendCascadePhases(&work, allocator, rng, .{
         .source = .player,
         .player_from = from,
         .player_to = to,
     }, anim);
+    if (!had_match) {
+        anim.clearPresentation();
+        return error.InvalidMoveNoMatch;
+    }
+    work.stats.moves += 1;
     try appendPostMoveResolutionPhases(&work, allocator, rng, anim);
     return work;
 }
@@ -125,7 +123,7 @@ fn appendSingleShuffleResolution(
     const before_shuffle = work.board;
     try engine.shuffleBoard(work, allocator, rng);
     try appendShufflePhase(anim, &before_shuffle, &work.board);
-    try appendCascadePhases(work, allocator, rng, .{ .source = .auto }, anim);
+    _ = try appendCascadePhases(work, allocator, rng, .{ .source = .auto }, anim);
 }
 
 fn appendCascadePhases(
@@ -134,9 +132,10 @@ fn appendCascadePhases(
     rng: std.Random,
     first_source: engine.ResolveSource,
     anim: *animations.AnimationState,
-) !void {
+) !bool {
     var source = first_source;
     var wave: usize = 0;
+    var had_any_match = false;
 
     while (true) {
         const before = work.board;
@@ -145,6 +144,7 @@ fn appendCascadePhases(
         var step = try engine.resolveOneWave(&one, allocator, rng, source, wave);
         defer step.deinit(allocator);
         if (!step.had_match) break;
+        had_any_match = true;
 
         const k_wave = @as(u8, @intCast(@min(@max(step.max_line_len, 3), 255)));
         const cascade_wave = @as(u8, @intCast(@min(wave, 255)));
@@ -162,6 +162,7 @@ fn appendCascadePhases(
 
         if (work.status != .running) break;
     }
+    return had_any_match;
 }
 
 fn appendSwapPhase(

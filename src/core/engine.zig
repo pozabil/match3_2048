@@ -339,17 +339,17 @@ pub fn applyPlayerAction(
         return;
     }
 
-    if (!match_lines.hasAnyLineMatch(&state.board)) {
+    const had_match = try resolveCascadeWithResult(state, allocator, rng, .{
+        .source = .player,
+        .player_from = from,
+        .player_to = to,
+    });
+    if (!had_match) {
         utils.swap(&state.board, from, to);
         return error.InvalidMoveNoMatch;
     }
 
     state.stats.moves += 1;
-    try resolveCascade(state, allocator, rng, .{
-        .source = .player,
-        .player_from = from,
-        .player_to = to,
-    });
     try enforcePostMoveState(state, allocator, rng);
 }
 
@@ -553,15 +553,17 @@ fn isSingleLine(cells: []const types.Position) bool {
     return same_row or same_col;
 }
 
-fn cellPoolValue(allocator: std.mem.Allocator, value: u32, count: usize) !u32 {
-    const pool = try allocator.alloc(u32, count);
-    defer allocator.free(pool);
+fn cellPoolValue(value: u32, count: usize) u32 {
+    std.debug.assert(count > 0);
 
-    for (pool) |*slot| {
-        slot.* = value;
+    // For a uniform pool (all entries == value), pool-reduce collapses into:
+    // value * highestPowerOfTwoLessOrEqual(count)
+    var out = value;
+    var n = count;
+    while (n >= 2) : (n >>= 1) {
+        out *= 2;
     }
-
-    return bomb_pool_reduce.reducePoolToSingleValue(allocator, pool);
+    return out;
 }
 
 pub fn resolveOneWave(
@@ -585,6 +587,7 @@ pub fn resolveOneWave(
     for (lines.items) |m| {
         if (m.len > step.max_line_len) step.max_line_len = m.len;
     }
+    try step.outcomes.ensureTotalCapacity(allocator, lines.items.len);
 
     var matched = falseMask();
     for (lines.items) |m| {
@@ -672,7 +675,7 @@ pub fn resolveOneWave(
             }
 
             const cells = component.cells[0..component.len];
-            const pool_result = try cellPoolValue(allocator, component.value, component.len);
+            const pool_result = cellPoolValue(component.value, component.len);
             const has_bomb = component.intersection_count > 0;
 
             if (has_bomb) {
@@ -727,16 +730,28 @@ pub fn resolveCascade(
     rng: std.Random,
     source_init: ResolveSource,
 ) !void {
+    _ = try resolveCascadeWithResult(state, allocator, rng, source_init);
+}
+
+pub fn resolveCascadeWithResult(
+    state: *types.GameState,
+    allocator: std.mem.Allocator,
+    rng: std.Random,
+    source_init: ResolveSource,
+) !bool {
     var source = source_init;
     var wave: usize = 0;
+    var had_any_match = false;
 
     while (wave < state.cfg.max_cascade_waves) : (wave += 1) {
         var step = try resolveOneWave(state, allocator, rng, source, wave);
         defer step.deinit(allocator);
         if (!step.had_match) break;
-        if (state.status == .won) return;
+        had_any_match = true;
+        if (state.status == .won) return had_any_match;
         source = .{ .source = .auto };
     }
+    return had_any_match;
 }
 
 pub fn explodeBombAt(
