@@ -13,7 +13,7 @@ fn clear(board: *types.Board) void {
     }
 }
 
-test "bomb chain increments activation counter" {
+test "bomb activation increments counter once even with neighboring bomb" {
     var state = types.GameState.init(cfg.defaultConfig());
     clear(&state.board);
 
@@ -27,6 +27,30 @@ test "bomb chain increments activation counter" {
     var prng = std.Random.DefaultPrng.init(11);
     try bomb_explosion.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 7, .col = 3 });
 
-    try std.testing.expect(state.stats.bomb_activations >= 2);
+    try std.testing.expectEqual(@as(u32, 1), state.stats.bomb_activations);
     try std.testing.expect(state.score > 0);
+}
+
+test "neighbor bomb is consumed without secondary blast propagation" {
+    var state = types.GameState.init(cfg.defaultConfig());
+    clear(&state.board);
+
+    // Origin bomb and neighboring bomb inside origin 3x3.
+    state.board[7][3] = types.Tile.bombWithValue(2);
+    state.board[6][3] = types.Tile.bombWithValue(2);
+
+    // In origin 3x3.
+    state.board[7][2] = types.Tile.number(2);
+    state.board[7][4] = types.Tile.number(2);
+    state.board[6][2] = types.Tile.number(4);
+    state.board[6][4] = types.Tile.number(4);
+
+    // Outside origin 3x3; must not be affected without chain reaction.
+    state.board[5][2] = types.Tile.number(64);
+
+    var prng = std.Random.DefaultPrng.init(12);
+    try bomb_explosion.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 7, .col = 3 });
+
+    try std.testing.expectEqual(@as(u32, 1), state.stats.bomb_activations);
+    try std.testing.expectEqual(@as(u64, 16), state.score);
 }

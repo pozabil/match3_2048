@@ -7,7 +7,8 @@ const bomb_pool_reduce = @import("bomb_pool_reduce.zig");
 
 pub const ResolveSource = struct {
     source: types.MatchSource,
-    player_target: ?types.Position = null,
+    player_from: ?types.Position = null,
+    player_to: ?types.Position = null,
 };
 
 const Outcome = struct {
@@ -15,6 +16,21 @@ const Outcome = struct {
     tile: types.Tile,
     grants_score: bool,
 };
+
+fn issueTileId(state: *types.GameState) u64 {
+    const out = state.next_tile_id;
+    state.next_tile_id +%= 1;
+    if (state.next_tile_id == 0) state.next_tile_id = 1;
+    return out;
+}
+
+fn makeNumberTile(state: *types.GameState, value: u32) types.Tile {
+    return types.Tile.numberWithId(value, issueTileId(state));
+}
+
+fn makeBombTile(state: *types.GameState, value: u32) types.Tile {
+    return types.Tile.bombWithId(value, issueTileId(state));
+}
 
 fn wouldCreateLine3(board: *const types.Board, row: usize, col: usize, value: u32) bool {
     if (col >= 2) {
@@ -49,11 +65,11 @@ fn fillBoardStartupNoLineMatches(state: *types.GameState, rng: std.Random) void 
             const secondary: u32 = if (primary == 2) 4 else 2;
 
             if (!wouldCreateLine3(&state.board, r, c, primary)) {
-                state.board[r][c] = types.Tile.number(primary);
+                state.board[r][c] = makeNumberTile(state, primary);
             } else if (!wouldCreateLine3(&state.board, r, c, secondary)) {
-                state.board[r][c] = types.Tile.number(secondary);
+                state.board[r][c] = makeNumberTile(state, secondary);
             } else {
-                state.board[r][c] = types.Tile.number(primary);
+                state.board[r][c] = makeNumberTile(state, primary);
             }
         }
     }
@@ -66,12 +82,14 @@ fn fillDeterministicFallback(state: *types.GameState) void {
     for (0..types.BOARD_ROWS) |r| {
         for (0..types.BOARD_COLS) |c| {
             const v = if ((r % 2) == 0) pattern_a[c] else pattern_b[c];
-            state.board[r][c] = types.Tile.number(v);
+            state.board[r][c] = makeNumberTile(state, v);
         }
     }
 }
 
 pub fn initializeBoard(state: *types.GameState, rng: std.Random) void {
+    state.next_tile_id = 1;
+
     var attempts: usize = 0;
     while (attempts < 4096) : (attempts += 1) {
         fillBoardStartupNoLineMatches(state, rng);
@@ -175,18 +193,18 @@ pub fn shuffleBoard(state: *types.GameState, allocator: std.mem.Allocator, rng: 
     }
 
     if (!hasValidMove(&state.board)) {
-        forceOneValidMovePattern(&state.board);
+        forceOneValidMovePattern(state);
     }
 }
 
-fn forceOneValidMovePattern(board: *types.Board) void {
+fn forceOneValidMovePattern(state: *types.GameState) void {
     if (types.BOARD_ROWS == 0 or types.BOARD_COLS < 4) return;
 
     // Guarantees one legal move: swapping col 2 <-> 3 makes a 3-in-line.
-    board[0][0] = types.Tile.number(2);
-    board[0][1] = types.Tile.number(2);
-    board[0][2] = types.Tile.number(4);
-    board[0][3] = types.Tile.number(2);
+    state.board[0][0] = makeNumberTile(state, 2);
+    state.board[0][1] = makeNumberTile(state, 2);
+    state.board[0][2] = makeNumberTile(state, 4);
+    state.board[0][3] = makeNumberTile(state, 2);
 }
 
 pub fn applyPlayerAction(
@@ -212,7 +230,7 @@ pub fn applyPlayerAction(
         const bomb_pos = if ((state.board[to.row][to.col] orelse types.Tile.number(0)).kind == .bomb) to else from;
         try explodeBombAt(state, allocator, rng, bomb_pos);
         state.stats.moves += 1;
-        try resolveCascade(state, allocator, rng, .{ .source = .auto, .player_target = null });
+        try resolveCascade(state, allocator, rng, .{ .source = .auto });
         try enforcePostMoveState(state, allocator, rng);
         return;
     }
@@ -223,7 +241,11 @@ pub fn applyPlayerAction(
     }
 
     state.stats.moves += 1;
-    try resolveCascade(state, allocator, rng, .{ .source = .player, .player_target = to });
+    try resolveCascade(state, allocator, rng, .{
+        .source = .player,
+        .player_from = from,
+        .player_to = to,
+    });
     try enforcePostMoveState(state, allocator, rng);
 }
 
@@ -301,9 +323,13 @@ fn chooseLineOutcomePosition(
     line_match: match_lines.LineMatch,
     positions: []const types.Position,
 ) types.Position {
-    if (source.source == .player and source.player_target != null and wave == 0) {
-        const target = source.player_target.?;
-        if (lineContainsPosition(line_match, target)) return target;
+    if (source.source == .player and wave == 0) {
+        if (source.player_to) |player_to| {
+            if (lineContainsPosition(line_match, player_to)) return player_to;
+        }
+        if (source.player_from) |player_from| {
+            if (lineContainsPosition(line_match, player_from)) return player_from;
+        }
     }
     return centerCandidate(positions);
 }
@@ -332,7 +358,8 @@ fn applyGravityAndSpawn(state: *types.GameState, rng: std.Random) void {
 
         while (write_row >= 0) : (write_row -= 1) {
             const wr: usize = @intCast(write_row);
-            state.board[wr][c] = utils.randomSpawnTile(rng, state.cfg);
+            const spawn_value = utils.randomSpawnTile(rng, state.cfg).value;
+            state.board[wr][c] = makeNumberTile(state, spawn_value);
         }
     }
 }
@@ -369,61 +396,76 @@ pub fn resolveCascade(
         var outcomes = std.ArrayList(Outcome).empty;
         defer outcomes.deinit(allocator);
 
-        var horizontal_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
-        var vertical_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
+        var horizontal_line_idx: [types.BOARD_ROWS][types.BOARD_COLS]isize = undefined;
+        var vertical_line_idx: [types.BOARD_ROWS][types.BOARD_COLS]isize = undefined;
         for (0..types.BOARD_ROWS) |r| {
             for (0..types.BOARD_COLS) |c| {
-                horizontal_mask[r][c] = false;
-                vertical_mask[r][c] = false;
+                horizontal_line_idx[r][c] = -1;
+                vertical_line_idx[r][c] = -1;
             }
         }
 
-        for (lines.items) |m| {
+        var line_consumed = std.ArrayList(bool).empty;
+        defer line_consumed.deinit(allocator);
+        try line_consumed.resize(allocator, lines.items.len);
+        for (line_consumed.items) |*consumed| consumed.* = false;
+
+        for (lines.items, 0..) |m, line_idx| {
             const orientation = lineOrientation(m);
             for (0..m.len) |i| {
                 const p = m.positions[i];
                 switch (orientation) {
-                    .horizontal => horizontal_mask[p.row][p.col] = true,
-                    .vertical => vertical_mask[p.row][p.col] = true,
+                    .horizontal => horizontal_line_idx[p.row][p.col] = @as(isize, @intCast(line_idx)),
+                    .vertical => vertical_line_idx[p.row][p.col] = @as(isize, @intCast(line_idx)),
                 }
             }
         }
 
-        var intersection_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
+        // Intersections are resolved per crossing cell:
+        // - if both lines are length >= 4 => bomb 4V in crossing cell;
+        // - otherwise numeric outcome:
+        //   Oh = line outcome of horizontal, Ov = line outcome of vertical;
+        //   equal -> 2*Oh, different -> max(Oh, Ov).
         for (0..types.BOARD_ROWS) |r| {
             for (0..types.BOARD_COLS) |c| {
-                intersection_mask[r][c] = horizontal_mask[r][c] and vertical_mask[r][c];
-            }
-        }
+                const h_idx = horizontal_line_idx[r][c];
+                const v_idx = vertical_line_idx[r][c];
+                if (h_idx < 0 or v_idx < 0) continue;
 
-        // Intersections produce bombs in-place with nominal 4V.
-        for (0..types.BOARD_ROWS) |r| {
-            for (0..types.BOARD_COLS) |c| {
-                if (!intersection_mask[r][c]) continue;
                 const cell = state.board[r][c] orelse continue;
                 if (cell.kind != .number) continue;
 
-                try outcomes.append(allocator, .{
-                    .pos = .{ .row = r, .col = c },
-                    .tile = types.Tile.bombWithValue(cell.value * 4),
-                    .grants_score = false,
-                });
+                const h_line_idx: usize = @intCast(h_idx);
+                const v_line_idx: usize = @intCast(v_idx);
+                const h_line = lines.items[h_line_idx];
+                const v_line = lines.items[v_line_idx];
+
+                line_consumed.items[h_line_idx] = true;
+                line_consumed.items[v_line_idx] = true;
+
+                if (h_line.len >= 4 and v_line.len >= 4) {
+                    try outcomes.append(allocator, .{
+                        .pos = .{ .row = r, .col = c },
+                        .tile = makeBombTile(state, cell.value * 4),
+                        .grants_score = false,
+                    });
+                } else {
+                    const out_h = mergedValueForLine(h_line.value, h_line.len);
+                    const out_v = mergedValueForLine(v_line.value, v_line.len);
+                    const merged_value: u32 = if (out_h == out_v) out_h * 2 else @max(out_h, out_v);
+                    try outcomes.append(allocator, .{
+                        .pos = .{ .row = r, .col = c },
+                        .tile = makeNumberTile(state, merged_value),
+                        .grants_score = true,
+                    });
+                }
             }
         }
 
-        // Normal line merges apply only to lines without any intersection cells.
-        for (lines.items) |m| {
+        // Normal line merges apply only to lines not consumed by intersections.
+        for (lines.items, 0..) |m, line_idx| {
             if (m.len < 3) continue;
-
-            var has_intersection = false;
-            for (0..m.len) |i| {
-                const p = m.positions[i];
-                if (intersection_mask[p.row][p.col]) {
-                    has_intersection = true;
-                    break;
-                }
-            }
-            if (has_intersection) continue;
+            if (line_consumed.items[line_idx]) continue;
 
             var temp = std.ArrayList(types.Position).empty;
             defer temp.deinit(allocator);
@@ -436,7 +478,7 @@ pub fn resolveCascade(
             const merged_value = mergedValueForLine(m.value, m.len);
             try outcomes.append(allocator, .{
                 .pos = place,
-                .tile = types.Tile.number(merged_value),
+                .tile = makeNumberTile(state, merged_value),
                 .grants_score = true,
             });
         }
@@ -473,56 +515,33 @@ pub fn explodeBombAt(
     rng: std.Random,
     origin: types.Position,
 ) !void {
-    var queue = std.ArrayList(types.Position).empty;
-    defer queue.deinit(allocator);
-
-    var seen: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
-    for (0..types.BOARD_ROWS) |r| {
-        for (0..types.BOARD_COLS) |c| {
-            seen[r][c] = false;
-        }
-    }
-
     var pool = std.ArrayList(u32).empty;
     defer pool.deinit(allocator);
 
-    try queue.append(allocator, origin);
-    seen[origin.row][origin.col] = true;
+    state.stats.bomb_activations += 1;
 
-    while (queue.items.len > 0) {
-        const bp = queue.pop().?;
-        const bt = state.board[bp.row][bp.col] orelse continue;
-        if (bt.kind != .bomb) continue;
+    const row_start = if (origin.row == 0) 0 else origin.row - 1;
+    const row_end = if (origin.row + 1 >= types.BOARD_ROWS) types.BOARD_ROWS - 1 else origin.row + 1;
+    const col_start = if (origin.col == 0) 0 else origin.col - 1;
+    const col_end = if (origin.col + 1 >= types.BOARD_COLS) types.BOARD_COLS - 1 else origin.col + 1;
 
-        state.stats.bomb_activations += 1;
-
-        const row_start = if (bp.row == 0) 0 else bp.row - 1;
-        const row_end = if (bp.row + 1 >= types.BOARD_ROWS) types.BOARD_ROWS - 1 else bp.row + 1;
-        const col_start = if (bp.col == 0) 0 else bp.col - 1;
-        const col_end = if (bp.col + 1 >= types.BOARD_COLS) types.BOARD_COLS - 1 else bp.col + 1;
-
-        for (row_start..row_end + 1) |r| {
-            for (col_start..col_end + 1) |c| {
-                if (state.board[r][c]) |tile| {
-                    if (tile.kind == .number) {
-                        try pool.append(allocator, tile.value);
-                    } else if (tile.kind == .bomb) {
-                        std.debug.assert(tile.value > 0);
-                        try pool.append(allocator, tile.value);
-                        if (!seen[r][c]) {
-                            seen[r][c] = true;
-                            try queue.append(allocator, .{ .row = r, .col = c });
-                        }
-                    }
-                    state.board[r][c] = null;
+    for (row_start..row_end + 1) |r| {
+        for (col_start..col_end + 1) |c| {
+            if (state.board[r][c]) |tile| {
+                if (tile.kind == .number) {
+                    try pool.append(allocator, tile.value);
+                } else if (tile.kind == .bomb) {
+                    std.debug.assert(tile.value > 0);
+                    try pool.append(allocator, tile.value);
                 }
+                state.board[r][c] = null;
             }
         }
     }
 
     if (pool.items.len == 0) return error.EmptyPool;
     const value = try bomb_pool_reduce.reducePoolToSingleValue(allocator, pool.items);
-    state.board[origin.row][origin.col] = types.Tile.number(value);
+    state.board[origin.row][origin.col] = makeNumberTile(state, value);
     merge_rules.applyScoreForMerge(state, value);
 
     applyGravityAndSpawn(state, rng);

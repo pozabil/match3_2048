@@ -15,5 +15,5 @@ pub fn drawHUD(state: *const types.GameState) void {
     const shuffle_text = std.fmt.bufPrintZ(&shuffle_buf, "Shuffles: {d}", .{state.shuffles_left}) catch "shf";
     rl.drawText(shuffle_text, 610, 54, 22, ink);
 
-    rl.drawText("Mouse: click+click or drag    R: new game", 46, 70, 20, ink);
+    rl.drawText("Mouse: click+click or drag    R: restart    S: shuffle", 46, 70, 20, ink);
 }

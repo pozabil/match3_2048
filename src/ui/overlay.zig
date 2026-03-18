@@ -32,5 +32,5 @@ pub fn drawEndOverlay(state: *const types.GameState) void {
     const bombs = std.fmt.bufPrintZ(&buf, "Bomb activations: {d}", .{state.stats.bomb_activations}) catch "bombs";
     rl.drawText(bombs, 300, 420, 26, ink);
 
-    rl.drawText("Press R for New Game", 300, 490, 30, ink);
+    rl.drawText("Press R to Restart", 300, 490, 30, ink);
 }

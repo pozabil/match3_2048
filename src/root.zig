@@ -28,4 +28,5 @@ pub const ui = struct {
     pub const hud = @import("ui/hud.zig");
     pub const overlay = @import("ui/overlay.zig");
     pub const animations = @import("ui/animations.zig");
+    pub const restart_confirm = @import("ui/restart_confirm.zig");
 };

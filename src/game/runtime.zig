@@ -4,8 +4,10 @@ const types = @import("../core/types.zig");
 const config = @import("../core/config.zig");
 const board_init = @import("../core/board_init.zig");
 const turn_planner = @import("turn_planner.zig");
+const engine = @import("../core/engine.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const animations = @import("../ui/animations.zig");
+const restart_confirm = @import("../ui/restart_confirm.zig");
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
@@ -15,6 +17,8 @@ pub const Runtime = struct {
     drag_start: ?types.Position = null,
     anim: animations.AnimationState = .{},
     pending_state: ?types.GameState = null,
+    confirm_open: bool = false,
+    confirm_action: restart_confirm.Action = .restart,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) Runtime {
         var runtime = Runtime{
@@ -32,6 +36,7 @@ pub const Runtime = struct {
         self.selected = null;
         self.drag_start = null;
         self.pending_state = null;
+        self.confirm_open = false;
         board_init.initializeBoard(&self.state, self.prng.random());
         self.anim.reset();
     }
@@ -46,8 +51,32 @@ pub const Runtime = struct {
             self.anim.triggerMove();
         }
 
+        if (!self.confirm_open and !self.anim.isPresenting() and rl.isKeyPressed(.r)) {
+            self.confirm_action = .restart;
+            self.confirm_open = true;
+            self.selected = null;
+            self.drag_start = null;
+            return;
+        }
+
+        if (!self.confirm_open and !self.anim.isPresenting() and self.state.status == .running and rl.isKeyPressed(.s)) {
+            if (self.state.shuffles_left > 0) {
+                self.confirm_action = .shuffle;
+                self.confirm_open = true;
+                self.selected = null;
+                self.drag_start = null;
+            } else {
+                self.anim.triggerInvalid();
+            }
+            return;
+        }
+
+        if (self.confirm_open) {
+            self.handleConfirmInput();
+            return;
+        }
+
         if (self.state.status != .running) {
-            if (rl.isKeyPressed(.r)) self.reset();
             return;
         }
 
@@ -84,6 +113,58 @@ pub const Runtime = struct {
             }
             self.drag_start = null;
         }
+    }
+
+    fn handleConfirmInput(self: *Runtime) void {
+        if (rl.isKeyPressed(.enter)) {
+            self.applyConfirmedAction();
+            return;
+        }
+
+        if (rl.isKeyPressed(.escape)) {
+            self.confirm_open = false;
+            return;
+        }
+
+        if (rl.isMouseButtonPressed(.left)) {
+            const m = rl.getMousePosition();
+            if (restart_confirm.hitTest(m.x, m.y)) |choice| {
+                switch (choice) {
+                    .yes => self.applyConfirmedAction(),
+                    .no => self.confirm_open = false,
+                }
+            }
+        }
+    }
+
+    fn applyConfirmedAction(self: *Runtime) void {
+        switch (self.confirm_action) {
+            .restart => self.reset(),
+            .shuffle => {
+                self.confirm_open = false;
+                self.applyManualShuffle();
+            },
+        }
+    }
+
+    fn applyManualShuffle(self: *Runtime) void {
+        if (self.state.status != .running) return;
+        if (self.state.shuffles_left == 0) {
+            self.anim.triggerInvalid();
+            return;
+        }
+
+        self.state.shuffles_left -= 1;
+        engine.shuffleBoard(&self.state, self.allocator, self.prng.random()) catch {
+            self.state.shuffles_left += 1;
+            self.anim.triggerInvalid();
+            return;
+        };
+
+        self.selected = null;
+        self.drag_start = null;
+        self.pending_state = null;
+        self.anim.clearPresentation();
     }
 
     fn tryAction(self: *Runtime, from: types.Position, to: types.Position) void {

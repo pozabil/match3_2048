@@ -39,10 +39,10 @@ pub fn planPlayerTurn(
 
         const before_explosion = work.board;
         try engine.explodeBombAt(&work, allocator, rng, bomb_pos);
-        try appendFallPhase(anim, &before_explosion, &work.board);
+        try appendFallPhase(anim, &before_explosion, &work.board, &blast_mask);
 
         work.stats.moves += 1;
-        try appendCascadePhases(&work, allocator, rng, .{ .source = .auto, .player_target = null }, anim);
+        try appendCascadePhases(&work, allocator, rng, .{ .source = .auto }, anim);
         try engine.enforcePostMoveState(&work, allocator, rng);
         return work;
     }
@@ -53,7 +53,11 @@ pub fn planPlayerTurn(
     }
 
     work.stats.moves += 1;
-    try appendCascadePhases(&work, allocator, rng, .{ .source = .player, .player_target = to }, anim);
+    try appendCascadePhases(&work, allocator, rng, .{
+        .source = .player,
+        .player_from = from,
+        .player_to = to,
+    }, anim);
     try engine.enforcePostMoveState(&work, allocator, rng);
     return work;
 }
@@ -80,10 +84,10 @@ fn appendCascadePhases(
         try engine.resolveCascade(&one, allocator, rng, source);
         one.cfg.max_cascade_waves = cap;
 
-        try appendFallPhase(anim, &before, &one.board);
+        try appendFallPhase(anim, &before, &one.board, &mask);
 
         work.* = one;
-        source = .{ .source = .auto, .player_target = null };
+        source = .{ .source = .auto };
 
         if (work.status != .running) break;
     }
@@ -143,7 +147,12 @@ fn appendMatchPhase(anim: *animations.AnimationState, board: *const types.Board,
     }
 }
 
-fn appendFallPhase(anim: *animations.AnimationState, before: *const types.Board, after: *const types.Board) !void {
+fn appendFallPhase(
+    anim: *animations.AnimationState,
+    before: *const types.Board,
+    after: *const types.Board,
+    consumed_mask: *const [types.BOARD_ROWS][types.BOARD_COLS]bool,
+) !void {
     var phase = animations.Phase.init(.fall_spawn, FALL_DURATION, after.*);
 
     for (0..types.BOARD_COLS) |c| {
@@ -155,7 +164,7 @@ fn appendFallPhase(anim: *animations.AnimationState, before: *const types.Board,
             const r: usize = @intCast(rr);
             const dst_tile = after[r][c] orelse continue;
 
-            if (findSourceRow(before, c, r, dst_tile, &used_src)) |src_row| {
+            if (findSourceRow(before, c, r, dst_tile, &used_src, consumed_mask)) |src_row| {
                 used_src[src_row] = true;
                 if (src_row != r) {
                     phase.hide_mask[r][c] = true;
@@ -168,10 +177,14 @@ fn appendFallPhase(anim: *animations.AnimationState, before: *const types.Board,
                     });
                 }
             } else {
+                const from_row = if (findAnchorRow(before, consumed_mask, c, r)) |anchor_row|
+                    @as(f32, @floatFromInt(anchor_row))
+                else
+                    -1.2;
                 phase.hide_mask[r][c] = true;
                 try phase.addTrack(.{
                     .tile = dst_tile,
-                    .from_row = -1.2,
+                    .from_row = from_row,
                     .from_col = @as(f32, @floatFromInt(c)),
                     .to_row = @as(f32, @floatFromInt(r)),
                     .to_col = @as(f32, @floatFromInt(c)),
@@ -191,29 +204,41 @@ fn findSourceRow(
     dst_row: usize,
     dst_tile: types.Tile,
     used_src: *[types.BOARD_ROWS]bool,
+    consumed_mask: *const [types.BOARD_ROWS][types.BOARD_COLS]bool,
 ) ?usize {
     var rr: isize = @as(isize, @intCast(types.BOARD_ROWS - 1));
     while (rr >= 0) : (rr -= 1) {
         const r: usize = @intCast(rr);
         if (used_src[r]) continue;
+        if (consumed_mask[r][col]) continue;
         const src_tile = before[r][col] orelse continue;
         if (!sameTile(src_tile, dst_tile)) continue;
         if (r <= dst_row) return r;
     }
 
-    rr = @as(isize, @intCast(types.BOARD_ROWS - 1));
+    return null;
+}
+
+fn findAnchorRow(
+    before: *const types.Board,
+    consumed_mask: *const [types.BOARD_ROWS][types.BOARD_COLS]bool,
+    col: usize,
+    dst_row: usize,
+) ?usize {
+    var rr: isize = @as(isize, @intCast(dst_row));
     while (rr >= 0) : (rr -= 1) {
         const r: usize = @intCast(rr);
-        if (used_src[r]) continue;
-        const src_tile = before[r][col] orelse continue;
-        if (!sameTile(src_tile, dst_tile)) continue;
+        if (!consumed_mask[r][col]) continue;
+        if (before[r][col] == null) continue;
         return r;
     }
-
     return null;
 }
 
 fn sameTile(a: types.Tile, b: types.Tile) bool {
+    if (a.id != 0 and b.id != 0) {
+        return a.id == b.id;
+    }
     return a.kind == b.kind and a.value == b.value;
 }
 

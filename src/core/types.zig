@@ -12,14 +12,24 @@ pub const TileKind = enum {
 pub const Tile = struct {
     kind: TileKind,
     value: u32,
+    id: u64,
 
     pub fn number(value: u32) Tile {
-        return .{ .kind = .number, .value = value };
+        return .{ .kind = .number, .value = value, .id = 0 };
+    }
+
+    pub fn numberWithId(value: u32, id: u64) Tile {
+        return .{ .kind = .number, .value = value, .id = id };
     }
 
     pub fn bombWithValue(value: u32) Tile {
         std.debug.assert(value > 0);
-        return .{ .kind = .bomb, .value = value };
+        return .{ .kind = .bomb, .value = value, .id = 0 };
+    }
+
+    pub fn bombWithId(value: u32, id: u64) Tile {
+        std.debug.assert(value > 0);
+        return .{ .kind = .bomb, .value = value, .id = id };
     }
 };
 
@@ -56,6 +66,7 @@ pub const GameState = struct {
     stats: Stats,
     status: GameStatus,
     input_locked: bool,
+    next_tile_id: u64,
 
     pub fn init(cfg: config.GameConfig) GameState {
         return .{
@@ -67,6 +78,7 @@ pub const GameState = struct {
             .stats = .{},
             .status = .running,
             .input_locked = false,
+            .next_tile_id = 1,
         };
     }
 };
