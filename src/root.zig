@@ -20,6 +20,7 @@ pub const core = struct {
 pub const game = struct {
     pub const runtime = @import("game/runtime.zig");
     pub const app = @import("game/app.zig");
+    pub const turn_planner = @import("game/turn_planner.zig");
 };
 
 pub const ui = struct {

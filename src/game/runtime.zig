@@ -3,7 +3,7 @@ const rl = @import("raylib");
 const types = @import("../core/types.zig");
 const config = @import("../core/config.zig");
 const board_init = @import("../core/board_init.zig");
-const player_move = @import("../core/player_move.zig");
+const turn_planner = @import("turn_planner.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const animations = @import("../ui/animations.zig");
 
@@ -14,6 +14,7 @@ pub const Runtime = struct {
     selected: ?types.Position = null,
     drag_start: ?types.Position = null,
     anim: animations.AnimationState = .{},
+    pending_state: ?types.GameState = null,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) Runtime {
         var runtime = Runtime{
@@ -30,6 +31,7 @@ pub const Runtime = struct {
         self.state = types.GameState.init(config.defaultConfig());
         self.selected = null;
         self.drag_start = null;
+        self.pending_state = null;
         board_init.initializeBoard(&self.state, self.prng.random());
         self.anim.reset();
     }
@@ -38,10 +40,18 @@ pub const Runtime = struct {
         const dt = rl.getFrameTime();
         self.anim.tick(dt);
 
+        if (self.pending_state != null and !self.anim.isPresenting()) {
+            self.state = self.pending_state.?;
+            self.pending_state = null;
+            self.anim.triggerMove();
+        }
+
         if (self.state.status != .running) {
             if (rl.isKeyPressed(.r)) self.reset();
             return;
         }
+
+        if (self.anim.isPresenting()) return;
 
         if (rl.isMouseButtonPressed(.left)) {
             const m = rl.getMousePosition();
@@ -77,7 +87,7 @@ pub const Runtime = struct {
     }
 
     fn tryAction(self: *Runtime, from: types.Position, to: types.Position) void {
-        player_move.applyPlayerAction(&self.state, self.allocator, self.prng.random(), from, to) catch |err| {
+        const planned = turn_planner.planPlayerTurn(&self.state, self.allocator, self.prng.random(), from, to, &self.anim) catch |err| {
             switch (err) {
                 error.InvalidMoveNoMatch => self.anim.triggerInvalid(),
                 error.NotAdjacent => {},
@@ -86,6 +96,11 @@ pub const Runtime = struct {
             return;
         };
 
-        self.anim.triggerMove();
+        self.pending_state = planned;
+        if (!self.anim.isPresenting()) {
+            self.state = planned;
+            self.pending_state = null;
+            self.anim.triggerMove();
+        }
     }
 };
