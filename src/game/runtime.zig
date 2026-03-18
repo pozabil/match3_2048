@@ -4,7 +4,6 @@ const types = @import("../core/types.zig");
 const config = @import("../core/config.zig");
 const board_init = @import("../core/board_init.zig");
 const turn_planner = @import("turn_planner.zig");
-const engine = @import("../core/engine.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const animations = @import("../ui/animations.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
@@ -148,23 +147,27 @@ pub const Runtime = struct {
     }
 
     fn applyManualShuffle(self: *Runtime) void {
-        if (self.state.status != .running) return;
-        if (self.state.shuffles_left == 0) {
-            self.anim.triggerInvalid();
-            return;
-        }
-
-        self.state.shuffles_left -= 1;
-        engine.shuffleBoard(&self.state, self.allocator, self.prng.random()) catch {
-            self.state.shuffles_left += 1;
-            self.anim.triggerInvalid();
+        const planned = turn_planner.planManualShuffle(
+            &self.state,
+            self.allocator,
+            self.prng.random(),
+            &self.anim,
+        ) catch |err| {
+            switch (err) {
+                error.NoShufflesLeft => self.anim.triggerInvalid(),
+                else => self.anim.triggerInvalid(),
+            }
             return;
         };
 
         self.selected = null;
         self.drag_start = null;
-        self.pending_state = null;
-        self.anim.clearPresentation();
+        self.pending_state = planned;
+        if (!self.anim.isPresenting()) {
+            self.state = planned;
+            self.pending_state = null;
+            self.anim.triggerMove();
+        }
     }
 
     fn tryAction(self: *Runtime, from: types.Position, to: types.Position) void {

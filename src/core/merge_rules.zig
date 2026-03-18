@@ -1,12 +1,13 @@
 const types = @import("types.zig");
 
 pub fn mergedValue(base_value: u32, line_len: usize) u32 {
-    return switch (line_len) {
-        3 => base_value * 2,
-        4 => base_value * 4,
-        5 => base_value * 8,
-        else => base_value * 2,
-    };
+    if (line_len < 3) return base_value;
+    var out = base_value;
+    var i: usize = 0;
+    while (i < line_len - 2) : (i += 1) {
+        out *= 2;
+    }
+    return out;
 }
 
 pub fn isNormalMerge(line_len: usize) bool {

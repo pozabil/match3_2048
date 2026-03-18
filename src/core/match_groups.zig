@@ -10,6 +10,11 @@ pub const Group = struct {
     }
 };
 
+pub fn deinitGroups(allocator: std.mem.Allocator, groups: *std.ArrayList(Group)) void {
+    for (groups.items) |*g| g.deinit(allocator);
+    groups.deinit(allocator);
+}
+
 fn readNumber(cell: ?types.Tile) ?u32 {
     if (cell) |t| {
         if (t.kind == .number) return t.value;
@@ -23,10 +28,7 @@ pub fn findConnectedGroupsOver(
     min_size: usize,
 ) !std.ArrayList(Group) {
     var out = std.ArrayList(Group).empty;
-    errdefer {
-        for (out.items) |*g| g.deinit(allocator);
-        out.deinit(allocator);
-    }
+    errdefer deinitGroups(allocator, &out);
 
     var visited: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
     for (0..types.BOARD_ROWS) |r| {

@@ -5,6 +5,7 @@ const types = game.core.types;
 const cfg = game.core.config;
 const utils = game.core.utils;
 const move_scan = game.core.move_scan;
+const match_lines = game.core.match_lines;
 const merge_rules = game.core.merge_rules;
 const bomb_pool_reduce = game.core.bomb_pool_reduce;
 const player_move = game.core.player_move;
@@ -106,7 +107,7 @@ test "intersection 3x3 resolves to numeric tile by equal->x2 rule" {
     try std.testing.expectEqual(@as(u64, 16), state.score);
 }
 
-test "intersection 4x4 creates bomb with nominal 4V" {
+test "intersection 4x4 creates one bomb with nominal cell-pool/2" {
     var custom_cfg = cfg.defaultConfig();
     custom_cfg.max_cascade_waves = 1;
     var state = types.GameState.init(custom_cfg);
@@ -126,7 +127,8 @@ test "intersection 4x4 creates bomb with nominal 4V" {
     try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(utils.boardHasAnyBomb(&state.board));
-    try std.testing.expect(boardHasBombWithValue(&state.board, 16));
+    try std.testing.expectEqual(@as(usize, 1), countBombs(&state.board));
+    try std.testing.expect(boardHasBombWithValue(&state.board, 8));
     try std.testing.expectEqual(@as(u64, 0), state.score);
 }
 
@@ -148,15 +150,16 @@ test "connected group over five without intersection does not create bomb" {
     try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(!utils.boardHasAnyBomb(&state.board));
+    try std.testing.expectEqual(@as(u64, 32), state.score);
 }
 
-test "mixed wave resolves intersections to bombs and non-intersection lines to merges" {
+test "mixed wave resolves component bomb and separate line merge" {
     var custom_cfg = cfg.defaultConfig();
     custom_cfg.max_cascade_waves = 1;
     var state = types.GameState.init(custom_cfg);
     clear(&state.board);
 
-    // Intersection (value 2, len4 x len4) => bomb nominal 8.
+    // Intersection component (value 2, len4 x len4) => single bomb nominal 4 (cell-pool/2).
     state.board[5][0] = types.Tile.number(2);
     state.board[5][1] = types.Tile.number(2);
     state.board[5][2] = types.Tile.number(2);
@@ -173,17 +176,17 @@ test "mixed wave resolves intersections to bombs and non-intersection lines to m
     var prng = std.Random.DefaultPrng.init(8891);
     try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
-    try std.testing.expect(boardHasBombWithValue(&state.board, 8));
+    try std.testing.expect(boardHasBombWithValue(&state.board, 4));
     try std.testing.expectEqual(@as(u64, 8), state.score);
 }
 
-test "multiple intersections in one wave create multiple bombs" {
+test "multiple disconnected components can create multiple bombs" {
     var custom_cfg = cfg.defaultConfig();
     custom_cfg.max_cascade_waves = 1;
     var state = types.GameState.init(custom_cfg);
     clear(&state.board);
 
-    // Intersection A (value 2, len4 x len4) => bomb 8.
+    // Intersection A (value 2, len4 x len4) => bomb 4.
     state.board[2][0] = types.Tile.number(2);
     state.board[2][1] = types.Tile.number(2);
     state.board[2][2] = types.Tile.number(2);
@@ -192,7 +195,7 @@ test "multiple intersections in one wave create multiple bombs" {
     state.board[1][2] = types.Tile.number(2);
     state.board[3][2] = types.Tile.number(2);
 
-    // Intersection B (value 4, len4 x len4) => bomb 16.
+    // Intersection B (value 4, len4 x len4) => bomb 8.
     state.board[5][4] = types.Tile.number(4);
     state.board[5][5] = types.Tile.number(4);
     state.board[5][6] = types.Tile.number(4);
@@ -205,11 +208,30 @@ test "multiple intersections in one wave create multiple bombs" {
     try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(countBombs(&state.board) >= 2);
+    try std.testing.expect(boardHasBombWithValue(&state.board, 4));
     try std.testing.expect(boardHasBombWithValue(&state.board, 8));
+}
+
+test "one connected 4x4 block creates exactly one bomb" {
+    var custom_cfg = cfg.defaultConfig();
+    custom_cfg.max_cascade_waves = 1;
+    var state = types.GameState.init(custom_cfg);
+    clear(&state.board);
+
+    for (2..6) |r| {
+        for (2..6) |c| {
+            state.board[r][c] = types.Tile.number(2);
+        }
+    }
+
+    var prng = std.Random.DefaultPrng.init(8895);
+    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+
+    try std.testing.expectEqual(@as(usize, 1), countBombs(&state.board));
     try std.testing.expect(boardHasBombWithValue(&state.board, 16));
 }
 
-test "line with multiple under-threshold intersections does not get extra line outcome" {
+test "under-threshold intersections resolve to one component outcome" {
     var custom_cfg = cfg.defaultConfig();
     custom_cfg.max_cascade_waves = 1;
     var state = types.GameState.init(custom_cfg);
@@ -233,10 +255,10 @@ test "line with multiple under-threshold intersections does not get extra line o
     var prng = std.Random.DefaultPrng.init(8894);
     try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
-    // Each intersection is under-threshold (vertical len3), so each yields numeric 16:
-    // Oh (len5) = 16, Ov (len3) = 4 => max = 16. Two intersections => total score 32.
+    // One connected component without bomb-eligible intersection => one numeric outcome via cell-pool.
+    // For nine 2-tiles, pool-reduce result is 16.
     try std.testing.expect(!utils.boardHasAnyBomb(&state.board));
-    try std.testing.expectEqual(@as(u64, 32), state.score);
+    try std.testing.expectEqual(@as(u64, 16), state.score);
 }
 
 test "player wave placement prefers from when to is not in matched line" {
@@ -366,6 +388,52 @@ test "state becomes lost when no moves and no shuffles left" {
     try std.testing.expectEqual(types.GameStatus.lost, state.status);
 }
 
+test "settle shuffled board resolves ready matches automatically" {
+    var state = types.GameState.init(cfg.defaultConfig());
+    fillBaselineNoLines(&state.board);
+
+    state.board[0][0] = types.Tile.number(2);
+    state.board[0][1] = types.Tile.number(2);
+    state.board[0][2] = types.Tile.number(2);
+
+    try std.testing.expect(match_lines.hasAnyLineMatch(&state.board));
+
+    var prng = std.Random.DefaultPrng.init(894);
+    try engine.settleShuffledBoard(&state, std.testing.allocator, prng.random());
+
+    try std.testing.expect(!match_lines.hasAnyLineMatch(&state.board));
+    try std.testing.expect(state.stats.cascade_waves >= 1);
+}
+
+test "shuffle keeps ready line groups at most three and preserves valid move" {
+    for (0..32) |i| {
+        var state = types.GameState.init(cfg.defaultConfig());
+        fillBaselineNoLines(&state.board);
+
+        var prng = std.Random.DefaultPrng.init(@as(u64, @intCast(9100 + i)));
+        try engine.shuffleBoard(&state, std.testing.allocator, prng.random());
+
+        const groups = try engine.countLineMatchGroups(std.testing.allocator, &state.board);
+        try std.testing.expect(groups <= 3);
+        try std.testing.expect(move_scan.hasValidMove(&state.board));
+    }
+}
+
+test "bomb-only creation of >=2048 sets won immediately" {
+    var state = types.GameState.init(cfg.defaultConfig());
+    clear(&state.board);
+
+    state.board[4][4] = types.Tile.bombWithValue(2);
+    state.board[4][3] = types.Tile.number(1024);
+    state.board[4][5] = types.Tile.number(1024);
+
+    var prng = std.Random.DefaultPrng.init(9101);
+    try bomb_explosion.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 4, .col = 4 });
+
+    try std.testing.expectEqual(types.GameStatus.won, state.status);
+    try std.testing.expect(state.max_tile >= 2048);
+}
+
 test "resolve/apply path is deterministic for same seed and same input" {
     var base = types.GameState.init(cfg.defaultConfig());
     fillBaselineNoLines(&base.board);
@@ -406,8 +474,11 @@ test "resolve/apply path is deterministic for same seed and same input" {
     try std.testing.expectEqualDeep(a.stats, b.stats);
 }
 
-test "merge formulas follow 2V/4V/8V" {
+test "merge formulas follow V*2^(k-2) for single lines" {
     try std.testing.expectEqual(@as(u32, 4), merge_rules.mergedValue(2, 3));
     try std.testing.expectEqual(@as(u32, 8), merge_rules.mergedValue(2, 4));
     try std.testing.expectEqual(@as(u32, 16), merge_rules.mergedValue(2, 5));
+    try std.testing.expectEqual(@as(u32, 32), merge_rules.mergedValue(2, 6));
+    try std.testing.expectEqual(@as(u32, 64), merge_rules.mergedValue(2, 7));
+    try std.testing.expectEqual(@as(u32, 128), merge_rules.mergedValue(2, 8));
 }
