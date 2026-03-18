@@ -5,6 +5,7 @@ const board_renderer = @import("../ui/board_renderer.zig");
 const hud = @import("../ui/hud.zig");
 const overlay = @import("../ui/overlay.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
+const audio_synth = @import("../audio/synth.zig");
 
 pub fn run(allocator: std.mem.Allocator) !void {
     rl.initWindow(900, 720, "match3_2048");
@@ -12,7 +13,16 @@ pub fn run(allocator: std.mem.Allocator) !void {
     rl.setExitKey(.null);
     rl.setTargetFPS(60);
 
+    rl.setAudioStreamBufferSizeDefault(@as(i32, @intCast(audio_synth.BUFFER_FRAMES)));
+    rl.initAudioDevice();
+    defer {
+        if (rl.isAudioDeviceReady()) {
+            rl.closeAudioDevice();
+        }
+    }
+
     var runtime = runtime_mod.Runtime.init(allocator, @as(u64, @intCast(std.time.milliTimestamp())));
+    defer runtime.deinit();
 
     while (!rl.windowShouldClose()) {
         runtime.tick();

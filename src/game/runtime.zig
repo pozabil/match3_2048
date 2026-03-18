@@ -7,6 +7,8 @@ const turn_planner = @import("turn_planner.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const animations = @import("../ui/animations.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
+const audio_synth = @import("../audio/synth.zig");
+const MAX_PHASE_AUDIO_STEP: f32 = 0.05;
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
@@ -15,11 +17,23 @@ pub const Runtime = struct {
     selected: ?types.Position = null,
     drag_start: ?types.Position = null,
     anim: animations.AnimationState = .{},
+    synth: audio_synth.Synth = .{},
     pending_state: ?types.GameState = null,
     confirm_open: bool = false,
     confirm_action: restart_confirm.Action = .restart,
+    seen_phase_index: usize = 0,
+    seen_phase_presenting: bool = false,
+    last_status_seen: types.GameStatus = .running,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) Runtime {
+        return initWithAudioOptions(allocator, seed, .{});
+    }
+
+    pub fn initWithAudioOptions(
+        allocator: std.mem.Allocator,
+        seed: u64,
+        audio_options: audio_synth.InitOptions,
+    ) Runtime {
         var runtime = Runtime{
             .allocator = allocator,
             .prng = std.Random.DefaultPrng.init(seed),
@@ -27,7 +41,26 @@ pub const Runtime = struct {
         };
         board_init.initializeBoard(&runtime.state, runtime.prng.random());
         runtime.anim.reset();
+        runtime.synth.init(seed ^ 0x9E3779B97F4A7C15, audio_options);
+        runtime.syncPhaseCursor();
+        runtime.last_status_seen = runtime.state.status;
         return runtime;
+    }
+
+    pub fn deinit(self: *Runtime) void {
+        self.synth.deinit();
+    }
+
+    pub fn isAudioEnabled(self: *const Runtime) bool {
+        return self.synth.isEnabled();
+    }
+
+    pub fn audioTriggerCount(self: *const Runtime, kind: audio_synth.EventKind) u32 {
+        return self.synth.triggerCount(kind);
+    }
+
+    pub fn debugPumpAudioAndAnimation(self: *Runtime, dt: f32) void {
+        self.pumpAnimationAndAudio(dt);
     }
 
     pub fn reset(self: *Runtime) void {
@@ -38,11 +71,13 @@ pub const Runtime = struct {
         self.confirm_open = false;
         board_init.initializeBoard(&self.state, self.prng.random());
         self.anim.reset();
+        self.syncPhaseCursor();
+        self.last_status_seen = self.state.status;
     }
 
     pub fn tick(self: *Runtime) void {
         const dt = rl.getFrameTime();
-        self.anim.tick(dt);
+        self.pumpAnimationAndAudio(dt);
 
         if (self.pending_state != null and !self.anim.isPresenting()) {
             self.state = self.pending_state.?;
@@ -66,6 +101,7 @@ pub const Runtime = struct {
                 self.drag_start = null;
             } else {
                 self.anim.triggerInvalid();
+                self.synth.trigger(.{ .kind = .invalid });
             }
             return;
         }
@@ -154,8 +190,14 @@ pub const Runtime = struct {
             &self.anim,
         ) catch |err| {
             switch (err) {
-                error.NoShufflesLeft => self.anim.triggerInvalid(),
-                else => self.anim.triggerInvalid(),
+                error.NoShufflesLeft => {
+                    self.anim.triggerInvalid();
+                    self.synth.trigger(.{ .kind = .invalid });
+                },
+                else => {
+                    self.anim.triggerInvalid();
+                    self.synth.trigger(.{ .kind = .invalid });
+                },
             }
             return;
         };
@@ -173,9 +215,15 @@ pub const Runtime = struct {
     fn tryAction(self: *Runtime, from: types.Position, to: types.Position) void {
         const planned = turn_planner.planPlayerTurn(&self.state, self.allocator, self.prng.random(), from, to, &self.anim) catch |err| {
             switch (err) {
-                error.InvalidMoveNoMatch => self.anim.triggerInvalid(),
+                error.InvalidMoveNoMatch => {
+                    self.anim.triggerInvalid();
+                    self.synth.trigger(.{ .kind = .invalid });
+                },
                 error.NotAdjacent => {},
-                else => self.anim.triggerInvalid(),
+                else => {
+                    self.anim.triggerInvalid();
+                    self.synth.trigger(.{ .kind = .invalid });
+                },
             }
             return;
         };
@@ -186,5 +234,90 @@ pub const Runtime = struct {
             self.pending_state = null;
             self.anim.triggerMove();
         }
+    }
+
+    fn syncAudioSignals(self: *Runtime) void {
+        self.emitPhaseBoundaryAudio();
+        self.emitStatusAudio();
+    }
+
+    fn pumpAnimationAndAudio(self: *Runtime, dt: f32) void {
+        var remaining = if (dt > 0.0) dt else 0.0;
+        if (remaining == 0.0) {
+            self.synth.tick(0.0);
+            self.anim.tick(0.0);
+            self.syncAudioSignals();
+            return;
+        }
+
+        while (remaining > 0.0) {
+            const step = @min(remaining, MAX_PHASE_AUDIO_STEP);
+            self.synth.tick(step);
+            self.anim.tick(step);
+            self.syncAudioSignals();
+            remaining -= step;
+        }
+    }
+
+    fn emitPhaseBoundaryAudio(self: *Runtime) void {
+        const now_presenting = self.anim.isPresenting();
+        const now_index = self.anim.phase_index;
+
+        var should_emit = false;
+        if (now_presenting) {
+            if (!self.seen_phase_presenting) {
+                should_emit = true;
+            } else if (now_index != self.seen_phase_index) {
+                should_emit = true;
+            }
+        }
+
+        if (should_emit) {
+            const phase = self.anim.currentPhase().?;
+            if (phase.audio_event) |event| {
+                self.playPhaseAudioEvent(event);
+            }
+        }
+
+        self.seen_phase_presenting = now_presenting;
+        self.seen_phase_index = now_index;
+    }
+
+    fn emitStatusAudio(self: *Runtime) void {
+        if (self.state.status == self.last_status_seen) return;
+
+        switch (self.state.status) {
+            .won => self.synth.trigger(.{ .kind = .win }),
+            .lost => self.synth.trigger(.{ .kind = .lose }),
+            .running => {},
+        }
+
+        self.last_status_seen = self.state.status;
+    }
+
+    fn playPhaseAudioEvent(self: *Runtime, event: animations.AudioEvent) void {
+        switch (event.kind) {
+            .swap => self.synth.trigger(.{ .kind = .swap }),
+            .match => self.synth.trigger(.{
+                .kind = .match,
+                .k_wave = event.k_wave,
+                .cascade_wave = event.cascade_wave,
+                .phase_intensity = event.phase_intensity,
+            }),
+            .fall_spawn => self.synth.trigger(.{
+                .kind = .fall_spawn,
+                .phase_intensity = event.phase_intensity,
+            }),
+            .bomb => self.synth.trigger(.{
+                .kind = .bomb,
+                .phase_intensity = event.phase_intensity,
+            }),
+            .shuffle => self.synth.trigger(.{ .kind = .shuffle }),
+        }
+    }
+
+    fn syncPhaseCursor(self: *Runtime) void {
+        self.seen_phase_presenting = self.anim.isPresenting();
+        self.seen_phase_index = self.anim.phase_index;
     }
 };

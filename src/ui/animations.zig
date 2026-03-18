@@ -10,6 +10,21 @@ pub const PhaseKind = enum {
     fall_spawn,
 };
 
+pub const AudioEventKind = enum {
+    swap,
+    match,
+    fall_spawn,
+    bomb,
+    shuffle,
+};
+
+pub const AudioEvent = struct {
+    kind: AudioEventKind,
+    k_wave: u8 = 3,
+    cascade_wave: u8 = 0,
+    phase_intensity: f32 = 1.0,
+};
+
 pub const TileTrack = struct {
     tile: types.Tile,
     from_row: f32,
@@ -22,6 +37,7 @@ pub const Phase = struct {
     kind: PhaseKind,
     duration: f32,
     base_board: types.Board,
+    audio_event: ?AudioEvent,
     hide_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool,
     tracks: [MAX_TRACKS]TileTrack,
     track_count: usize,
@@ -31,6 +47,7 @@ pub const Phase = struct {
             .kind = kind,
             .duration = duration,
             .base_board = board,
+            .audio_event = null,
             .hide_mask = undefined,
             .tracks = undefined,
             .track_count = 0,

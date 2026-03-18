@@ -37,7 +37,10 @@ pub fn planPlayerTurn(
 
         var blast_mask = emptyMask();
         markBombArea(&blast_mask, bomb_pos);
-        try appendMatchPhase(anim, &work.board, &blast_mask);
+        try appendMatchPhase(anim, &work.board, &blast_mask, .{
+            .kind = .bomb,
+            .phase_intensity = 1.25,
+        });
 
         const before_explosion = work.board;
         const preview = try engine.previewBombResolve(allocator, &before_explosion, bomb_pos);
@@ -143,7 +146,13 @@ fn appendCascadePhases(
         defer step.deinit(allocator);
         if (!step.had_match) break;
 
-        try appendMatchPhase(anim, &before, &step.matched_mask);
+        const k_wave = @as(u8, @intCast(@min(@max(step.max_line_len, 3), 255)));
+        const cascade_wave = @as(u8, @intCast(@min(wave, 255)));
+        try appendMatchPhase(anim, &before, &step.matched_mask, .{
+            .kind = .match,
+            .k_wave = k_wave,
+            .cascade_wave = cascade_wave,
+        });
         try appendResolvePhase(anim, &before, &step.matched_mask, step.outcomes.items);
         try appendFallPhase(anim, &step.board_after_resolve, &one.board);
 
@@ -164,6 +173,7 @@ fn appendSwapPhase(
     to_tile: types.Tile,
 ) !void {
     var phase = animations.Phase.init(.swap, SWAP_DURATION, board.*);
+    phase.audio_event = .{ .kind = .swap };
     phase.hide_mask[from.row][from.col] = true;
     phase.hide_mask[to.row][to.col] = true;
 
@@ -185,8 +195,14 @@ fn appendSwapPhase(
     try anim.appendPhase(phase);
 }
 
-fn appendMatchPhase(anim: *animations.AnimationState, board: *const types.Board, mask: *const [types.BOARD_ROWS][types.BOARD_COLS]bool) !void {
+fn appendMatchPhase(
+    anim: *animations.AnimationState,
+    board: *const types.Board,
+    mask: *const [types.BOARD_ROWS][types.BOARD_COLS]bool,
+    audio_event: animations.AudioEvent,
+) !void {
     var phase = animations.Phase.init(.match_flash, MATCH_DURATION, board.*);
+    phase.audio_event = audio_event;
 
     for (0..types.BOARD_ROWS) |r| {
         for (0..types.BOARD_COLS) |c| {
@@ -243,6 +259,7 @@ fn appendShufflePhase(
     after: *const types.Board,
 ) !void {
     var phase = animations.Phase.init(.fall_spawn, SHUFFLE_DURATION, before.*);
+    phase.audio_event = .{ .kind = .shuffle };
 
     var used_sources: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
     for (0..types.BOARD_ROWS) |r| {
@@ -351,7 +368,19 @@ fn appendFallPhase(
         }
     }
 
+    if (phase.track_count > 0) {
+        phase.audio_event = .{
+            .kind = .fall_spawn,
+            .phase_intensity = fallPhaseIntensity(phase.track_count),
+        };
+    }
     try anim.appendPhase(phase);
+}
+
+fn fallPhaseIntensity(track_count: usize) f32 {
+    if (track_count == 0) return 0.0;
+    const x = @as(f32, @floatFromInt(track_count)) / 14.0;
+    return std.math.clamp(x, 0.35, 1.8);
 }
 
 fn findSourceRow(

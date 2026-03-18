@@ -30,3 +30,7 @@ pub const ui = struct {
     pub const animations = @import("ui/animations.zig");
     pub const restart_confirm = @import("ui/restart_confirm.zig");
 };
+
+pub const audio = struct {
+    pub const synth = @import("audio/synth.zig");
+};

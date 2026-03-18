@@ -19,6 +19,7 @@ pub const WaveOutcome = struct {
 
 pub const WaveStep = struct {
     had_match: bool,
+    max_line_len: usize,
     matched_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool,
     outcomes: std.ArrayList(WaveOutcome),
     board_after_resolve: types.Board,
@@ -26,6 +27,7 @@ pub const WaveStep = struct {
     pub fn init(board: types.Board) WaveStep {
         return .{
             .had_match = false,
+            .max_line_len = 0,
             .matched_mask = falseMask(),
             .outcomes = .empty,
             .board_after_resolve = board,
@@ -580,6 +582,9 @@ pub fn resolveOneWave(
 
     step.had_match = true;
     state.stats.cascade_waves += 1;
+    for (lines.items) |m| {
+        if (m.len > step.max_line_len) step.max_line_len = m.len;
+    }
 
     var matched = falseMask();
     for (lines.items) |m| {
