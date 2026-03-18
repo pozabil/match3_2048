@@ -41,6 +41,29 @@ fn fillUniqueNoMoveBoard(board: *types.Board) void {
     }
 }
 
+fn boardHasBombWithValue(board: *const types.Board, value: u32) bool {
+    for (board.*) |row| {
+        for (row) |cell| {
+            if (cell) |tile| {
+                if (tile.kind == .bomb and tile.value == value) return true;
+            }
+        }
+    }
+    return false;
+}
+
+fn countBombs(board: *const types.Board) usize {
+    var out: usize = 0;
+    for (board.*) |row| {
+        for (row) |cell| {
+            if (cell) |tile| {
+                if (tile.kind == .bomb) out += 1;
+            }
+        }
+    }
+    return out;
+}
+
 test "invalid swap rolls back board state" {
     var state = types.GameState.init(cfg.defaultConfig());
     fillBaselineNoLines(&state.board);
@@ -62,30 +85,104 @@ test "invalid swap rolls back board state" {
     try std.testing.expectEqual(@as(u32, 0), state.stats.moves);
 }
 
-test "k > 5 connected match creates a bomb" {
-    var state = types.GameState.init(cfg.defaultConfig());
+test "intersection of horizontal+vertical 3+ creates bomb with nominal 4V" {
+    var custom_cfg = cfg.defaultConfig();
+    custom_cfg.max_cascade_waves = 1;
+    var state = types.GameState.init(custom_cfg);
     fillBaselineNoLines(&state.board);
 
-    // Cross shape: horizontal line of 3 + vertical line of 5, connected count > 5.
-    state.board[2][3] = types.Tile.number(2);
-    state.board[3][2] = types.Tile.number(2);
-    state.board[3][3] = types.Tile.number(2);
-    state.board[3][4] = types.Tile.number(2);
-    state.board[4][3] = types.Tile.number(2);
-    state.board[5][3] = types.Tile.number(2);
-    state.board[6][3] = types.Tile.number(2);
+    // Intersection on value 4.
+    state.board[2][4] = types.Tile.number(4);
+    state.board[3][3] = types.Tile.number(4);
+    state.board[3][4] = types.Tile.number(4);
+    state.board[3][5] = types.Tile.number(4);
+    state.board[4][4] = types.Tile.number(4);
 
     var prng = std.Random.DefaultPrng.init(888);
     try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(utils.boardHasAnyBomb(&state.board));
+    try std.testing.expect(boardHasBombWithValue(&state.board, 16));
+}
+
+test "connected group over five without intersection does not create bomb" {
+    var custom_cfg = cfg.defaultConfig();
+    custom_cfg.max_cascade_waves = 1;
+    var state = types.GameState.init(custom_cfg);
+    fillBaselineNoLines(&state.board);
+
+    // Single long horizontal line (len=6), no vertical 3+ intersection.
+    state.board[4][0] = types.Tile.number(2);
+    state.board[4][1] = types.Tile.number(2);
+    state.board[4][2] = types.Tile.number(2);
+    state.board[4][3] = types.Tile.number(2);
+    state.board[4][4] = types.Tile.number(2);
+    state.board[4][5] = types.Tile.number(2);
+
+    var prng = std.Random.DefaultPrng.init(8890);
+    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+
+    try std.testing.expect(!utils.boardHasAnyBomb(&state.board));
+}
+
+test "mixed wave resolves intersections to bombs and non-intersection lines to merges" {
+    var custom_cfg = cfg.defaultConfig();
+    custom_cfg.max_cascade_waves = 1;
+    var state = types.GameState.init(custom_cfg);
+    clear(&state.board);
+
+    // Intersection (value 2) => bomb nominal 8.
+    state.board[5][1] = types.Tile.number(2);
+    state.board[5][2] = types.Tile.number(2);
+    state.board[5][3] = types.Tile.number(2);
+    state.board[4][2] = types.Tile.number(2);
+    state.board[6][2] = types.Tile.number(2);
+
+    // Separate non-intersection line (value 4) => normal merge 8.
+    state.board[0][0] = types.Tile.number(4);
+    state.board[0][1] = types.Tile.number(4);
+    state.board[0][2] = types.Tile.number(4);
+
+    var prng = std.Random.DefaultPrng.init(8891);
+    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+
+    try std.testing.expect(boardHasBombWithValue(&state.board, 8));
+    try std.testing.expectEqual(@as(u64, 8), state.score);
+}
+
+test "multiple intersections in one wave create multiple bombs" {
+    var custom_cfg = cfg.defaultConfig();
+    custom_cfg.max_cascade_waves = 1;
+    var state = types.GameState.init(custom_cfg);
+    clear(&state.board);
+
+    // Intersection A (value 2) => bomb 8.
+    state.board[2][1] = types.Tile.number(2);
+    state.board[2][2] = types.Tile.number(2);
+    state.board[2][3] = types.Tile.number(2);
+    state.board[1][2] = types.Tile.number(2);
+    state.board[3][2] = types.Tile.number(2);
+
+    // Intersection B (value 4) => bomb 16.
+    state.board[5][4] = types.Tile.number(4);
+    state.board[5][5] = types.Tile.number(4);
+    state.board[5][6] = types.Tile.number(4);
+    state.board[4][5] = types.Tile.number(4);
+    state.board[6][5] = types.Tile.number(4);
+
+    var prng = std.Random.DefaultPrng.init(8892);
+    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+
+    try std.testing.expect(countBombs(&state.board) >= 2);
+    try std.testing.expect(boardHasBombWithValue(&state.board, 8));
+    try std.testing.expect(boardHasBombWithValue(&state.board, 16));
 }
 
 test "bomb activates via player swap even without line match" {
     var state = types.GameState.init(cfg.defaultConfig());
     clear(&state.board);
 
-    state.board[7][3] = types.Tile.bomb();
+    state.board[7][3] = types.Tile.bombWithValue(2);
     state.board[7][4] = types.Tile.number(2);
     state.board[6][3] = types.Tile.number(2);
     state.board[6][4] = types.Tile.number(4);
@@ -109,7 +206,7 @@ test "bomb explosion computes result from 3x3 pool only" {
     var state = types.GameState.init(cfg.defaultConfig());
     clear(&state.board);
 
-    state.board[4][4] = types.Tile.bomb();
+    state.board[4][4] = types.Tile.bombWithValue(2);
     state.board[3][3] = types.Tile.number(2);
     state.board[3][4] = types.Tile.number(4);
     state.board[3][5] = types.Tile.number(8);
@@ -123,7 +220,7 @@ test "bomb explosion computes result from 3x3 pool only" {
     state.board[0][0] = types.Tile.number(1024);
     state.board[7][7] = types.Tile.number(1024);
 
-    const pool = [_]u32{ 2, 4, 8, 16, 32, 64, 128, 256 };
+    const pool = [_]u32{ 2, 2, 4, 8, 16, 32, 64, 128, 256 };
     const expected = try bomb_pool_reduce.reducePoolToSingleValue(std.testing.allocator, &pool);
 
     var prng = std.Random.DefaultPrng.init(890);

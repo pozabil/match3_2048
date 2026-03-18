@@ -5,9 +5,9 @@ const match_lines = @import("../core/match_lines.zig");
 const engine = @import("../core/engine.zig");
 const animations = @import("../ui/animations.zig");
 
-const SWAP_DURATION: f32 = 0.12;
-const MATCH_DURATION: f32 = 0.10;
-const FALL_DURATION: f32 = 0.16;
+const SWAP_DURATION: f32 = 0.17;
+const MATCH_DURATION: f32 = 0.13;
+const FALL_DURATION: f32 = 0.22;
 
 pub fn planPlayerTurn(
     base_state: *const types.GameState,

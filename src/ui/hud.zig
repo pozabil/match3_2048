@@ -9,11 +9,11 @@ pub fn drawHUD(state: *const types.GameState) void {
 
     var score_buf: [96]u8 = undefined;
     const score_text = std.fmt.bufPrintZ(&score_buf, "Score: {d}", .{state.score}) catch "score";
-    rl.drawText(score_text, 610, 74, 28, ink);
+    rl.drawText(score_text, 610, 24, 26, ink);
 
     var shuffle_buf: [96]u8 = undefined;
     const shuffle_text = std.fmt.bufPrintZ(&shuffle_buf, "Shuffles: {d}", .{state.shuffles_left}) catch "shf";
-    rl.drawText(shuffle_text, 610, 108, 24, ink);
+    rl.drawText(shuffle_text, 610, 54, 22, ink);
 
-    rl.drawText("Mouse: click+click or drag    R: new game", 46, 64, 20, ink);
+    rl.drawText("Mouse: click+click or drag    R: new game", 46, 70, 20, ink);
 }

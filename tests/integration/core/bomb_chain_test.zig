@@ -17,8 +17,8 @@ test "bomb chain increments activation counter" {
     var state = types.GameState.init(cfg.defaultConfig());
     clear(&state.board);
 
-    state.board[7][3] = types.Tile.bomb();
-    state.board[6][3] = types.Tile.bomb();
+    state.board[7][3] = types.Tile.bombWithValue(2);
+    state.board[6][3] = types.Tile.bombWithValue(2);
     state.board[7][2] = types.Tile.number(2);
     state.board[7][4] = types.Tile.number(2);
     state.board[6][2] = types.Tile.number(4);

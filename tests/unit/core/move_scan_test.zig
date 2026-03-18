@@ -28,7 +28,7 @@ test "has valid move on simple swap" {
 test "bomb adjacency is always valid move" {
     var board: types.Board = undefined;
     clear(&board);
-    board[3][3] = types.Tile.bomb();
+    board[3][3] = types.Tile.bombWithValue(2);
     board[3][4] = types.Tile.number(2);
 
     try std.testing.expect(move_scan.hasValidMove(&board));

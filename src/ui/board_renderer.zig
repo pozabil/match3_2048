@@ -138,7 +138,13 @@ fn drawTileAtCell(panel_x: i32, row: f32, col: f32, tile: types.Tile, scale: f32
     rl.drawRectangle(x, y, scaled, scaled, fill);
 
     if (tile.kind == .bomb) {
-        rl.drawText("B", x + @divTrunc(scaled, 2) - 8, y + @divTrunc(scaled, 2) - 12, 24, colorWithAlpha(rl.Color.init(249, 246, 242, 255), alpha));
+        var bomb_txt: [32]u8 = undefined;
+        const s = std.fmt.bufPrintZ(&bomb_txt, "B{d}", .{tile.value}) catch "B?";
+        const fs = bombFontSize(tile.value);
+        const tw = rl.measureText(s, fs);
+        const tx = x + @divTrunc(scaled - tw, 2);
+        const ty = y + @divTrunc(scaled - fs, 2) - 1;
+        rl.drawText(s, tx, ty, fs, colorWithAlpha(rl.Color.init(249, 246, 242, 255), alpha));
         return;
     }
 
@@ -178,4 +184,10 @@ fn tileFontSize(value: u32) i32 {
 
 fn bombColor() rl.Color {
     return rl.Color.init(142, 74, 74, 255);
+}
+
+fn bombFontSize(value: u32) i32 {
+    if (value < 100) return 22;
+    if (value < 1000) return 18;
+    return 16;
 }

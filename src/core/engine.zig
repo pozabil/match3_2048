@@ -277,74 +277,43 @@ fn distanceSq(p: types.Position, center_row: f64, center_col: f64) f64 {
     return dr * dr + dc * dc;
 }
 
-fn collectBombGroups(
-    allocator: std.mem.Allocator,
-    board: *const types.Board,
-    matched: *const [types.BOARD_ROWS][types.BOARD_COLS]bool,
-) !std.ArrayList(std.ArrayList(types.Position)) {
-    var groups = std.ArrayList(std.ArrayList(types.Position)).empty;
-    errdefer {
-        for (groups.items) |*g| g.deinit(allocator);
-        groups.deinit(allocator);
+const LineOrientation = enum {
+    horizontal,
+    vertical,
+};
+
+fn lineOrientation(m: match_lines.LineMatch) LineOrientation {
+    if (m.len >= 2 and m.positions[0].row == m.positions[1].row) return .horizontal;
+    return .vertical;
+}
+
+fn lineContainsPosition(m: match_lines.LineMatch, p: types.Position) bool {
+    for (0..m.len) |i| {
+        const pos = m.positions[i];
+        if (pos.row == p.row and pos.col == p.col) return true;
     }
+    return false;
+}
 
-    var visited: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
-    for (0..types.BOARD_ROWS) |r| {
-        for (0..types.BOARD_COLS) |c| {
-            visited[r][c] = false;
-        }
+fn chooseLineOutcomePosition(
+    source: ResolveSource,
+    wave: usize,
+    line_match: match_lines.LineMatch,
+    positions: []const types.Position,
+) types.Position {
+    if (source.source == .player and source.player_target != null and wave == 0) {
+        const target = source.player_target.?;
+        if (lineContainsPosition(line_match, target)) return target;
     }
+    return centerCandidate(positions);
+}
 
-    var queue = std.ArrayList(types.Position).empty;
-    defer queue.deinit(allocator);
-
-    for (0..types.BOARD_ROWS) |r| {
-        for (0..types.BOARD_COLS) |c| {
-            if (!matched[r][c] or visited[r][c]) continue;
-            const cell = board[r][c] orelse continue;
-            if (cell.kind != .number) continue;
-
-            visited[r][c] = true;
-            queue.clearRetainingCapacity();
-            try queue.append(allocator, .{ .row = r, .col = c });
-
-            var group = std.ArrayList(types.Position).empty;
-            errdefer group.deinit(allocator);
-
-            while (queue.items.len > 0) {
-                const p = queue.pop().?;
-                try group.append(allocator, p);
-
-                const neighbors = [_]types.Position{
-                    .{ .row = if (p.row == 0) p.row else p.row - 1, .col = p.col },
-                    .{ .row = if (p.row + 1 >= types.BOARD_ROWS) p.row else p.row + 1, .col = p.col },
-                    .{ .row = p.row, .col = if (p.col == 0) p.col else p.col - 1 },
-                    .{ .row = p.row, .col = if (p.col + 1 >= types.BOARD_COLS) p.col else p.col + 1 },
-                };
-
-                for (neighbors) |n| {
-                    if (n.row == p.row and n.col == p.col) continue;
-                    if (visited[n.row][n.col]) continue;
-                    if (!matched[n.row][n.col]) continue;
-
-                    const neighbor_cell = board[n.row][n.col] orelse continue;
-                    if (neighbor_cell.kind != .number) continue;
-                    if (neighbor_cell.value != cell.value) continue;
-
-                    visited[n.row][n.col] = true;
-                    try queue.append(allocator, n);
-                }
-            }
-
-            if (group.items.len > 5) {
-                try groups.append(allocator, group);
-            } else {
-                group.deinit(allocator);
-            }
-        }
-    }
-
-    return groups;
+fn mergedValueForLine(base_value: u32, line_len: usize) u32 {
+    return switch (line_len) {
+        3 => base_value * 2,
+        4 => base_value * 4,
+        else => base_value * 8,
+    };
 }
 
 fn applyGravityAndSpawn(state: *types.GameState, rng: std.Random) void {
@@ -397,54 +366,64 @@ pub fn resolveCascade(
             }
         }
 
-        var bomb_groups = try collectBombGroups(allocator, &state.board, &matched);
-        defer {
-            for (bomb_groups.items) |*g| g.deinit(allocator);
-            bomb_groups.deinit(allocator);
-        }
-
-        var in_bomb_group: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
-        for (0..types.BOARD_ROWS) |r| {
-            for (0..types.BOARD_COLS) |c| {
-                in_bomb_group[r][c] = false;
-            }
-        }
-        for (bomb_groups.items) |g| {
-            for (g.items) |p| {
-                in_bomb_group[p.row][p.col] = true;
-            }
-        }
-
         var outcomes = std.ArrayList(Outcome).empty;
         defer outcomes.deinit(allocator);
 
-        // Bomb outcomes have precedence for k>5 connected groups.
-        for (bomb_groups.items) |g| {
-            const place = if (source.source == .player and source.player_target != null and wave == 0)
-                source.player_target.?
-            else
-                centerCandidate(g.items);
-
-            try outcomes.append(allocator, .{
-                .pos = place,
-                .tile = types.Tile.bomb(),
-                .grants_score = false,
-            });
+        var horizontal_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
+        var vertical_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
+        for (0..types.BOARD_ROWS) |r| {
+            for (0..types.BOARD_COLS) |c| {
+                horizontal_mask[r][c] = false;
+                vertical_mask[r][c] = false;
+            }
         }
 
-        // Normal line merges not covered by bomb groups.
         for (lines.items) |m| {
-            if (!merge_rules.isNormalMerge(m.len)) continue;
-
-            var overlaps_bomb = false;
+            const orientation = lineOrientation(m);
             for (0..m.len) |i| {
                 const p = m.positions[i];
-                if (in_bomb_group[p.row][p.col]) {
-                    overlaps_bomb = true;
+                switch (orientation) {
+                    .horizontal => horizontal_mask[p.row][p.col] = true,
+                    .vertical => vertical_mask[p.row][p.col] = true,
+                }
+            }
+        }
+
+        var intersection_mask: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
+        for (0..types.BOARD_ROWS) |r| {
+            for (0..types.BOARD_COLS) |c| {
+                intersection_mask[r][c] = horizontal_mask[r][c] and vertical_mask[r][c];
+            }
+        }
+
+        // Intersections produce bombs in-place with nominal 4V.
+        for (0..types.BOARD_ROWS) |r| {
+            for (0..types.BOARD_COLS) |c| {
+                if (!intersection_mask[r][c]) continue;
+                const cell = state.board[r][c] orelse continue;
+                if (cell.kind != .number) continue;
+
+                try outcomes.append(allocator, .{
+                    .pos = .{ .row = r, .col = c },
+                    .tile = types.Tile.bombWithValue(cell.value * 4),
+                    .grants_score = false,
+                });
+            }
+        }
+
+        // Normal line merges apply only to lines without any intersection cells.
+        for (lines.items) |m| {
+            if (m.len < 3) continue;
+
+            var has_intersection = false;
+            for (0..m.len) |i| {
+                const p = m.positions[i];
+                if (intersection_mask[p.row][p.col]) {
+                    has_intersection = true;
                     break;
                 }
             }
-            if (overlaps_bomb) continue;
+            if (has_intersection) continue;
 
             var temp = std.ArrayList(types.Position).empty;
             defer temp.deinit(allocator);
@@ -453,12 +432,8 @@ pub fn resolveCascade(
                 try temp.append(allocator, m.positions[i]);
             }
 
-            const place = if (source.source == .player and source.player_target != null and wave == 0)
-                source.player_target.?
-            else
-                centerCandidate(temp.items);
-
-            const merged_value = merge_rules.mergedValue(m.value, m.len);
+            const place = chooseLineOutcomePosition(source, wave, m, temp.items);
+            const merged_value = mergedValueForLine(m.value, m.len);
             try outcomes.append(allocator, .{
                 .pos = place,
                 .tile = types.Tile.number(merged_value),
@@ -531,9 +506,13 @@ pub fn explodeBombAt(
                 if (state.board[r][c]) |tile| {
                     if (tile.kind == .number) {
                         try pool.append(allocator, tile.value);
-                    } else if (tile.kind == .bomb and !seen[r][c]) {
-                        seen[r][c] = true;
-                        try queue.append(allocator, .{ .row = r, .col = c });
+                    } else if (tile.kind == .bomb) {
+                        std.debug.assert(tile.value > 0);
+                        try pool.append(allocator, tile.value);
+                        if (!seen[r][c]) {
+                            seen[r][c] = true;
+                            try queue.append(allocator, .{ .row = r, .col = c });
+                        }
                     }
                     state.board[r][c] = null;
                 }

@@ -1,3 +1,4 @@
+const std = @import("std");
 const config = @import("config.zig");
 
 pub const BOARD_ROWS: usize = 8;
@@ -16,8 +17,9 @@ pub const Tile = struct {
         return .{ .kind = .number, .value = value };
     }
 
-    pub fn bomb() Tile {
-        return .{ .kind = .bomb, .value = 0 };
+    pub fn bombWithValue(value: u32) Tile {
+        std.debug.assert(value > 0);
+        return .{ .kind = .bomb, .value = value };
     }
 };
 
