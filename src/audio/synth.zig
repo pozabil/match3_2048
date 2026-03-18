@@ -36,6 +36,7 @@ const EVENT_KIND_COUNT: usize = @typeInfo(EventKind).@"enum".fields.len;
 const Waveform = enum {
     sine,
     triangle,
+    pulse,
     noise,
 };
 
@@ -48,6 +49,13 @@ const VoicePreset = struct {
     release_s: f32,
     pitch_jitter: f32,
     time_jitter: f32,
+    vibrato_depth: f32 = 0.0,
+    vibrato_hz: f32 = 0.0,
+    tremolo_depth: f32 = 0.0,
+    tremolo_hz: f32 = 0.0,
+    drift_depth: f32 = 0.0,
+    duty: f32 = 0.35,
+    duty_jitter: f32 = 0.03,
 };
 
 const Voice = struct {
@@ -55,11 +63,20 @@ const Voice = struct {
     waveform: Waveform = .sine,
     phase: f32 = 0.0,
     phase_inc: f32 = 0.0,
+    duty: f32 = 0.35,
     gain: f32 = 0.0,
     total_samples: u32 = 0,
     samples_remaining: u32 = 0,
     attack_samples: u32 = 0,
     release_samples: u32 = 0,
+    vibrato_phase: f32 = 0.0,
+    vibrato_phase_inc: f32 = 0.0,
+    vibrato_depth: f32 = 0.0,
+    tremolo_phase: f32 = 0.0,
+    tremolo_phase_inc: f32 = 0.0,
+    tremolo_depth: f32 = 0.0,
+    pitch_drift: f32 = 0.0,
+    pitch_drift_depth: f32 = 0.0,
     noise_state: u32 = 0xA341316C,
 };
 
@@ -74,7 +91,6 @@ pub const Synth = struct {
     frame_buffer: [BUFFER_FRAMES]f32 = [_]f32{0.0} ** BUFFER_FRAMES,
 
     pub fn init(self: *Synth, seed: u64, options: InitOptions) void {
-        // Safe re-init: release previous stream before resetting state.
         self.deinit();
         self.* = .{};
         self.rng = std.Random.DefaultPrng.init(seed);
@@ -186,146 +202,213 @@ pub const Synth = struct {
         switch (event.kind) {
             .swap => {
                 self.spawnPreset(.{
-                    .waveform = .triangle,
-                    .freq_hz = 420.0,
-                    .gain = 0.22,
-                    .duration_s = 0.07,
-                    .attack_s = 0.004,
-                    .release_s = 0.05,
-                    .pitch_jitter = 0.04,
-                    .time_jitter = 0.08,
+                    .waveform = .noise,
+                    .freq_hz = 1.0,
+                    .gain = 0.07,
+                    .duration_s = 0.018,
+                    .attack_s = 0.0005,
+                    .release_s = 0.013,
+                    .pitch_jitter = 0.0,
+                    .time_jitter = 0.02,
+                    .drift_depth = 0.0015,
                 });
-            },
-            .invalid => {
                 self.spawnPreset(.{
-                    .waveform = .sine,
-                    .freq_hz = 220.0,
-                    .gain = 0.20,
-                    .duration_s = 0.10,
-                    .attack_s = 0.002,
-                    .release_s = 0.07,
-                    .pitch_jitter = 0.03,
-                    .time_jitter = 0.08,
+                    .waveform = .pulse,
+                    .freq_hz = 440.0,
+                    .gain = 0.15,
+                    .duration_s = 0.05,
+                    .attack_s = 0.001,
+                    .release_s = 0.03,
+                    .pitch_jitter = 0.010,
+                    .time_jitter = 0.03,
+                    .vibrato_depth = 0.003,
+                    .vibrato_hz = 5.0,
+                    .tremolo_depth = 0.012,
+                    .tremolo_hz = 4.0,
+                    .drift_depth = 0.003,
+                    .duty = 0.32,
+                    .duty_jitter = 0.02,
                 });
             },
+            .invalid => self.spawnPreset(.{
+                .waveform = .pulse,
+                .freq_hz = 180.0,
+                .gain = 0.16,
+                .duration_s = 0.10,
+                .attack_s = 0.001,
+                .release_s = 0.065,
+                .pitch_jitter = 0.010,
+                .time_jitter = 0.03,
+                .vibrato_depth = 0.003,
+                .vibrato_hz = 4.6,
+                .tremolo_depth = 0.01,
+                .tremolo_hz = 3.8,
+                .drift_depth = 0.003,
+                .duty = 0.32,
+                .duty_jitter = 0.02,
+            }),
             .shuffle => {
                 self.spawnPreset(.{
-                    .waveform = .triangle,
-                    .freq_hz = 300.0,
-                    .gain = 0.20,
-                    .duration_s = 0.12,
-                    .attack_s = 0.005,
-                    .release_s = 0.10,
-                    .pitch_jitter = 0.05,
-                    .time_jitter = 0.10,
+                    .waveform = .noise,
+                    .freq_hz = 1.0,
+                    .gain = 0.08,
+                    .duration_s = 0.04,
+                    .attack_s = 0.0005,
+                    .release_s = 0.03,
+                    .pitch_jitter = 0.0,
+                    .time_jitter = 0.02,
+                    .drift_depth = 0.0015,
                 });
                 self.spawnPreset(.{
-                    .waveform = .sine,
-                    .freq_hz = 520.0,
-                    .gain = 0.12,
-                    .duration_s = 0.08,
-                    .attack_s = 0.003,
+                    .waveform = .pulse,
+                    .freq_hz = 260.0,
+                    .gain = 0.14,
+                    .duration_s = 0.09,
+                    .attack_s = 0.001,
                     .release_s = 0.06,
-                    .pitch_jitter = 0.05,
-                    .time_jitter = 0.10,
+                    .pitch_jitter = 0.010,
+                    .time_jitter = 0.03,
+                    .vibrato_depth = 0.003,
+                    .vibrato_hz = 5.2,
+                    .tremolo_depth = 0.012,
+                    .tremolo_hz = 4.0,
+                    .drift_depth = 0.003,
+                    .duty = 0.34,
+                    .duty_jitter = 0.02,
                 });
             },
             .fall_spawn => {
                 const intensity = std.math.clamp(event.phase_intensity, 0.2, 2.0);
                 self.spawnPreset(.{
-                    .waveform = .sine,
-                    .freq_hz = 170.0 + 40.0 * intensity,
-                    .gain = 0.05 * intensity,
-                    .duration_s = 0.05,
-                    .attack_s = 0.002,
-                    .release_s = 0.04,
-                    .pitch_jitter = 0.03,
-                    .time_jitter = 0.08,
+                    .waveform = .pulse,
+                    .freq_hz = 175.0 + 20.0 * (intensity - 1.0),
+                    .gain = 0.047 * intensity,
+                    .duration_s = 0.035,
+                    .attack_s = 0.001,
+                    .release_s = 0.02,
+                    .pitch_jitter = 0.008,
+                    .time_jitter = 0.03,
+                    .vibrato_depth = 0.002,
+                    .vibrato_hz = 4.0,
+                    .tremolo_depth = 0.01,
+                    .tremolo_hz = 3.6,
+                    .drift_depth = 0.0025,
+                    .duty = 0.35,
+                    .duty_jitter = 0.02,
                 });
             },
             .match => {
                 const k = @as(f32, @floatFromInt(@max(event.k_wave, 3)));
                 const wave = @as(f32, @floatFromInt(event.cascade_wave));
-                const bright = 1.0 + (k - 3.0) * 0.18;
-                const depth_boost = 1.0 + std.math.clamp(wave, 0.0, 6.0) * 0.04;
+                const bright = 1.0 + (k - 3.0) * 0.12;
+                const wave_boost = 1.0 + std.math.clamp(wave, 0.0, 6.0) * 0.03;
 
                 self.spawnPreset(.{
-                    .waveform = .triangle,
-                    .freq_hz = 300.0 * bright,
-                    .gain = 0.16 * depth_boost,
-                    .duration_s = 0.10,
-                    .attack_s = 0.003,
-                    .release_s = 0.08,
-                    .pitch_jitter = 0.05,
-                    .time_jitter = 0.08,
+                    .waveform = .pulse,
+                    .freq_hz = 262.0 * bright,
+                    .gain = 0.15 * wave_boost,
+                    .duration_s = 0.085,
+                    .attack_s = 0.0015,
+                    .release_s = 0.055,
+                    .pitch_jitter = 0.010,
+                    .time_jitter = 0.03,
+                    .vibrato_depth = 0.003,
+                    .vibrato_hz = 5.0,
+                    .tremolo_depth = 0.012,
+                    .tremolo_hz = 4.0,
+                    .drift_depth = 0.003,
+                    .duty = 0.33,
+                    .duty_jitter = 0.02,
                 });
                 self.spawnPreset(.{
-                    .waveform = .sine,
-                    .freq_hz = 460.0 * bright,
-                    .gain = 0.11 * depth_boost,
-                    .duration_s = 0.08,
-                    .attack_s = 0.003,
-                    .release_s = 0.06,
-                    .pitch_jitter = 0.05,
-                    .time_jitter = 0.08,
+                    .waveform = .noise,
+                    .freq_hz = 1.0,
+                    .gain = 0.05,
+                    .duration_s = 0.03,
+                    .attack_s = 0.0005,
+                    .release_s = 0.02,
+                    .pitch_jitter = 0.0,
+                    .time_jitter = 0.02,
+                    .drift_depth = 0.0015,
                 });
             },
             .bomb => {
                 self.spawnPreset(.{
                     .waveform = .noise,
                     .freq_hz = 1.0,
-                    .gain = 0.18,
+                    .gain = 0.22,
                     .duration_s = 0.09,
-                    .attack_s = 0.001,
+                    .attack_s = 0.0005,
                     .release_s = 0.07,
                     .pitch_jitter = 0.0,
-                    .time_jitter = 0.10,
+                    .time_jitter = 0.02,
+                    .drift_depth = 0.002,
                 });
                 self.spawnPreset(.{
-                    .waveform = .triangle,
-                    .freq_hz = 120.0,
-                    .gain = 0.12,
-                    .duration_s = 0.12,
-                    .attack_s = 0.002,
+                    .waveform = .sine,
+                    .freq_hz = 82.0,
+                    .gain = 0.15,
+                    .duration_s = 0.13,
+                    .attack_s = 0.001,
                     .release_s = 0.10,
-                    .pitch_jitter = 0.04,
-                    .time_jitter = 0.08,
+                    .pitch_jitter = 0.008,
+                    .time_jitter = 0.03,
+                    .vibrato_depth = 0.002,
+                    .vibrato_hz = 4.0,
+                    .tremolo_depth = 0.01,
+                    .tremolo_hz = 3.5,
+                    .drift_depth = 0.0025,
                 });
             },
             .win => {
                 self.spawnPreset(.{
-                    .waveform = .triangle,
-                    .freq_hz = 520.0,
-                    .gain = 0.20,
-                    .duration_s = 0.16,
-                    .attack_s = 0.003,
-                    .release_s = 0.12,
-                    .pitch_jitter = 0.03,
-                    .time_jitter = 0.06,
+                    .waveform = .pulse,
+                    .freq_hz = 430.0,
+                    .gain = 0.14,
+                    .duration_s = 0.15,
+                    .attack_s = 0.002,
+                    .release_s = 0.11,
+                    .pitch_jitter = 0.010,
+                    .time_jitter = 0.03,
+                    .vibrato_depth = 0.003,
+                    .vibrato_hz = 4.8,
+                    .tremolo_depth = 0.012,
+                    .tremolo_hz = 4.0,
+                    .drift_depth = 0.003,
+                    .duty = 0.34,
+                    .duty_jitter = 0.02,
                 });
                 self.spawnPreset(.{
                     .waveform = .sine,
-                    .freq_hz = 780.0,
-                    .gain = 0.16,
-                    .duration_s = 0.20,
-                    .attack_s = 0.004,
-                    .release_s = 0.14,
-                    .pitch_jitter = 0.03,
-                    .time_jitter = 0.06,
-                });
-            },
-            .lose => {
-                self.spawnPreset(.{
-                    .waveform = .sine,
-                    .freq_hz = 180.0,
-                    .gain = 0.18,
-                    .duration_s = 0.16,
-                    .attack_s = 0.003,
+                    .freq_hz = 650.0,
+                    .gain = 0.10,
+                    .duration_s = 0.17,
+                    .attack_s = 0.002,
                     .release_s = 0.12,
-                    .pitch_jitter = 0.03,
-                    .time_jitter = 0.06,
+                    .pitch_jitter = 0.010,
+                    .time_jitter = 0.03,
+                    .vibrato_depth = 0.003,
+                    .vibrato_hz = 4.8,
+                    .tremolo_depth = 0.012,
+                    .tremolo_hz = 4.0,
+                    .drift_depth = 0.003,
                 });
             },
+            .lose => self.spawnPreset(.{
+                .waveform = .sine,
+                .freq_hz = 130.0,
+                .gain = 0.15,
+                .duration_s = 0.16,
+                .attack_s = 0.002,
+                .release_s = 0.12,
+                .pitch_jitter = 0.010,
+                .time_jitter = 0.03,
+                .vibrato_depth = 0.003,
+                .vibrato_hz = 4.4,
+                .tremolo_depth = 0.01,
+                .tremolo_hz = 3.8,
+                .drift_depth = 0.003,
+            }),
         }
     }
 
@@ -340,18 +423,31 @@ pub const Synth = struct {
         const total_samples = @as(u32, @intFromFloat(@as(f32, @floatFromInt(SAMPLE_RATE)) * duration_s));
         const attack_samples = @as(u32, @intFromFloat(@as(f32, @floatFromInt(SAMPLE_RATE)) * attack_s));
         const release_samples = @as(u32, @intFromFloat(@as(f32, @floatFromInt(SAMPLE_RATE)) * release_s));
+        const base_phase_inc = @max(0.0001, (preset.freq_hz * pitch_mul) / @as(f32, @floatFromInt(SAMPLE_RATE)));
+
+        const vibrato_rate = if (preset.vibrato_hz <= 0.0) 0.0 else (preset.vibrato_hz * (1.0 + self.randSigned(0.15))) / @as(f32, @floatFromInt(SAMPLE_RATE));
+        const tremolo_rate = if (preset.tremolo_hz <= 0.0) 0.0 else (preset.tremolo_hz * (1.0 + self.randSigned(0.15))) / @as(f32, @floatFromInt(SAMPLE_RATE));
 
         const slot = self.pickVoiceSlot();
         self.voices[slot] = .{
             .active = true,
             .waveform = preset.waveform,
             .phase = self.rng.random().float(f32),
-            .phase_inc = @max(0.0001, (preset.freq_hz * pitch_mul) / @as(f32, @floatFromInt(SAMPLE_RATE))),
+            .phase_inc = base_phase_inc,
+            .duty = std.math.clamp(preset.duty + self.randSigned(preset.duty_jitter), 0.08, 0.92),
             .gain = preset.gain,
             .total_samples = @max(total_samples, 1),
             .samples_remaining = @max(total_samples, 1),
             .attack_samples = attack_samples,
             .release_samples = release_samples,
+            .vibrato_phase = self.rng.random().float(f32),
+            .vibrato_phase_inc = vibrato_rate,
+            .vibrato_depth = @max(0.0, preset.vibrato_depth * (1.0 + self.randSigned(0.2))),
+            .tremolo_phase = self.rng.random().float(f32),
+            .tremolo_phase_inc = tremolo_rate,
+            .tremolo_depth = std.math.clamp(preset.tremolo_depth * (1.0 + self.randSigned(0.2)), 0.0, 0.9),
+            .pitch_drift = 0.0,
+            .pitch_drift_depth = @max(0.0, preset.drift_depth * (1.0 + self.randSigned(0.2))),
             .noise_state = self.rng.random().int(u32) | 1,
         };
     }
@@ -401,15 +497,40 @@ pub const Synth = struct {
         }
 
         const env = envelopeFor(voice.total_samples, voice.samples_remaining, voice.attack_samples, voice.release_samples);
+        var phase_inc = voice.phase_inc;
+        var amp_mod: f32 = 1.0;
+
+        if (voice.vibrato_depth > 0.0 and voice.vibrato_phase_inc > 0.0) {
+            const vib = std.math.sin(voice.vibrato_phase * std.math.tau);
+            phase_inc *= 1.0 + vib * voice.vibrato_depth;
+            voice.vibrato_phase += voice.vibrato_phase_inc;
+            if (voice.vibrato_phase >= 1.0) voice.vibrato_phase -= @floor(voice.vibrato_phase);
+        }
+
+        if (voice.pitch_drift_depth > 0.0) {
+            voice.noise_state = xorshift32(voice.noise_state);
+            const rnd = randSignedFromState(voice.noise_state);
+            voice.pitch_drift = std.math.clamp(
+                voice.pitch_drift * 0.988 + rnd * voice.pitch_drift_depth * 0.03,
+                -voice.pitch_drift_depth,
+                voice.pitch_drift_depth,
+            );
+            phase_inc *= 1.0 + voice.pitch_drift;
+        }
+
+        if (voice.tremolo_depth > 0.0 and voice.tremolo_phase_inc > 0.0) {
+            const trem = (std.math.sin(voice.tremolo_phase * std.math.tau) + 1.0) * 0.5;
+            amp_mod = (1.0 - voice.tremolo_depth * 0.5) + trem * voice.tremolo_depth;
+            voice.tremolo_phase += voice.tremolo_phase_inc;
+            if (voice.tremolo_phase >= 1.0) voice.tremolo_phase -= @floor(voice.tremolo_phase);
+        }
+
         var raw: f32 = 0.0;
 
         switch (voice.waveform) {
-            .sine => {
-                raw = std.math.sin(voice.phase * std.math.tau);
-            },
-            .triangle => {
-                raw = 1.0 - 4.0 * @abs(voice.phase - 0.5);
-            },
+            .sine => raw = std.math.sin(voice.phase * std.math.tau),
+            .triangle => raw = 1.0 - 4.0 * @abs(voice.phase - 0.5),
+            .pulse => raw = if (voice.phase < voice.duty) 1.0 else -1.0,
             .noise => {
                 voice.noise_state = xorshift32(voice.noise_state);
                 const n = @as(f32, @floatFromInt(voice.noise_state)) / @as(f32, @floatFromInt(std.math.maxInt(u32)));
@@ -417,7 +538,7 @@ pub const Synth = struct {
             },
         }
 
-        voice.phase += voice.phase_inc;
+        voice.phase += phase_inc;
         if (voice.phase >= 1.0) {
             voice.phase -= @floor(voice.phase);
         }
@@ -425,7 +546,7 @@ pub const Synth = struct {
         voice.samples_remaining -= 1;
         if (voice.samples_remaining == 0) voice.active = false;
 
-        return raw * voice.gain * env;
+        return raw * voice.gain * env * amp_mod;
     }
 
     fn updateCooldowns(self: *Synth, dt: f32) void {
@@ -481,4 +602,9 @@ fn xorshift32(seed: u32) u32 {
     x ^= x >> 17;
     x ^= x << 5;
     return x;
+}
+
+fn randSignedFromState(state: u32) f32 {
+    const n = @as(f32, @floatFromInt(state)) / @as(f32, @floatFromInt(std.math.maxInt(u32)));
+    return n * 2.0 - 1.0;
 }
