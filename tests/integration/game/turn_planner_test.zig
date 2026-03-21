@@ -73,6 +73,33 @@ test "turn planner matches core final state for same seed" {
     try std.testing.expectEqualDeep(expected.stats, planned.stats);
 }
 
+test "turn planner respects max_cascade_waves cap" {
+    var custom_cfg = cfg.defaultConfig();
+    custom_cfg.max_cascade_waves = 1;
+
+    var base = types.GameState.init(custom_cfg);
+    for (0..types.BOARD_ROWS) |r| {
+        for (0..types.BOARD_COLS) |c| {
+            base.board[r][c] = types.Tile.number(2);
+        }
+    }
+
+    var prng = std.Random.DefaultPrng.init(91002);
+    var anim: animations.AnimationState = .{};
+    anim.reset();
+
+    const planned = try turn_planner.planPlayerTurn(
+        &base,
+        std.testing.allocator,
+        prng.random(),
+        .{ .row = 0, .col = 0 },
+        .{ .row = 0, .col = 1 },
+        &anim,
+    );
+
+    try std.testing.expectEqual(@as(u32, 1), planned.stats.cascade_waves);
+}
+
 test "fall phase tracks never move upward" {
     var base = types.GameState.init(cfg.defaultConfig());
     fillBaselineNoLines(&base.board);

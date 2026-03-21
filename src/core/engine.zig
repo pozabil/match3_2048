@@ -148,6 +148,7 @@ pub fn initializeBoard(state: *types.GameState, rng: std.Random) void {
         state.score = 0;
         state.max_tile = 0;
         state.shuffles_left = state.cfg.initial_shuffles;
+        state.shuffle_bonus_1024_awarded = false;
         state.stats = .{};
         state.status = .running;
         state.input_locked = false;
@@ -160,6 +161,7 @@ pub fn initializeBoard(state: *types.GameState, rng: std.Random) void {
     state.score = 0;
     state.max_tile = 0;
     state.shuffles_left = state.cfg.initial_shuffles;
+    state.shuffle_bonus_1024_awarded = false;
     state.stats = .{};
     state.status = .running;
     state.input_locked = false;

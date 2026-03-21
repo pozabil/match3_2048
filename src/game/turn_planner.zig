@@ -137,7 +137,7 @@ fn appendCascadePhases(
     var wave: usize = 0;
     var had_any_match = false;
 
-    while (true) {
+    while (wave < work.cfg.max_cascade_waves) : (wave += 1) {
         const before = work.board;
 
         var one = work.*;
@@ -158,7 +158,6 @@ fn appendCascadePhases(
 
         work.* = one;
         source = .{ .source = .auto };
-        wave += 1;
 
         if (work.status != .running) break;
     }

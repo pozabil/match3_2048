@@ -19,6 +19,12 @@ pub fn applyScoreForMerge(state: *types.GameState, merged_value: u32) void {
     if (merged_value > state.max_tile) {
         state.max_tile = merged_value;
     }
+
+    if (!state.shuffle_bonus_1024_awarded and merged_value >= 1024) {
+        state.shuffle_bonus_1024_awarded = true;
+        state.shuffles_left +|= 1;
+    }
+
     if (merged_value >= 2048) {
         state.status = .won;
     }
