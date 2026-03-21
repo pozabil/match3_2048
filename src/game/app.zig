@@ -24,8 +24,8 @@ fn frame(runtime: *runtime_mod.Runtime) void {
 
     rl.clearBackground(rl.Color.init(250, 248, 239, 255));
     board_renderer.drawBoard(&runtime.state, runtime.selected, &runtime.anim);
-    hud.drawHUD(&runtime.state);
-    overlay.drawEndOverlay(&runtime.state);
+    hud.drawHUD(&runtime.state, runtime.elapsed_seconds);
+    overlay.drawEndOverlay(&runtime.state, runtime.elapsed_seconds);
     restart_confirm.draw(runtime.confirm_action, runtime.confirm_open, runtime.state.shuffles_left);
 }
 

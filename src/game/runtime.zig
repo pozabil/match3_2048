@@ -29,6 +29,7 @@ pub const Runtime = struct {
     touch_down_prev: bool = false,
     touch_last_pos: rl.Vector2 = .{ .x = 0.0, .y = 0.0 },
     suppress_mouse_until: f64 = 0.0,
+    elapsed_seconds: f64 = 0.0,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) Runtime {
         return initWithAudioOptions(allocator, seed, .{});
@@ -77,6 +78,7 @@ pub const Runtime = struct {
         self.touch_down_prev = false;
         self.touch_last_pos = .{ .x = 0.0, .y = 0.0 };
         self.suppress_mouse_until = 0.0;
+        self.elapsed_seconds = 0.0;
         board_init.initializeBoard(&self.state, self.prng.random());
         self.anim.reset();
         self.syncPhaseCursor();
@@ -85,6 +87,9 @@ pub const Runtime = struct {
 
     pub fn tick(self: *Runtime) void {
         const dt = rl.getFrameTime();
+        if (self.state.status == .running and dt > 0.0) {
+            self.elapsed_seconds += dt;
+        }
         self.pumpAnimationAndAudio(dt);
 
         if (self.pending_state != null and !self.anim.isPresenting()) {
@@ -331,17 +336,17 @@ pub const Runtime = struct {
     fn pumpAnimationAndAudio(self: *Runtime, dt: f32) void {
         var remaining = if (dt > 0.0) dt else 0.0;
         if (remaining == 0.0) {
-            self.synth.tick(0.0);
             self.anim.tick(0.0);
             self.syncAudioSignals();
+            self.synth.tick(0.0);
             return;
         }
 
         while (remaining > 0.0) {
             const step = @min(remaining, MAX_PHASE_AUDIO_STEP);
-            self.synth.tick(step);
             self.anim.tick(step);
             self.syncAudioSignals();
+            self.synth.tick(step);
             remaining -= step;
         }
     }

@@ -7,7 +7,7 @@ const IS_WEB = builtin.target.os.tag == .emscripten;
 pub const SAMPLE_RATE: u32 = if (IS_WEB) 44_100 else 48_000;
 pub const SAMPLE_SIZE_BITS: u32 = 32;
 pub const CHANNELS: u32 = 1;
-pub const BUFFER_FRAMES: usize = if (IS_WEB) 2048 else 1024;
+pub const BUFFER_FRAMES: usize = 512;
 pub const MAX_VOICES: usize = if (IS_WEB) 6 else 8;
 
 pub const InitOptions = struct {
@@ -35,6 +35,7 @@ pub const Event = struct {
 };
 
 const EVENT_KIND_COUNT: usize = @typeInfo(EventKind).@"enum".fields.len;
+const EVENT_QUEUE_CAPACITY: usize = 64;
 
 const Waveform = enum {
     sine,
@@ -85,12 +86,16 @@ const Voice = struct {
 
 pub const Synth = struct {
     enabled: bool = false,
+    uses_stream_callback: bool = false,
     master_volume: f32 = 0.35,
     stream: ?rl.AudioStream = null,
     rng: std.Random.DefaultPrng = std.Random.DefaultPrng.init(1),
     voices: [MAX_VOICES]Voice = [_]Voice{.{}} ** MAX_VOICES,
     cooldowns: [EVENT_KIND_COUNT]f32 = [_]f32{0.0} ** EVENT_KIND_COUNT,
-    trigger_counts: [EVENT_KIND_COUNT]u32 = [_]u32{0} ** EVENT_KIND_COUNT,
+    trigger_counts: [EVENT_KIND_COUNT]std.atomic.Value(u32) = [_]std.atomic.Value(u32){std.atomic.Value(u32).init(0)} ** EVENT_KIND_COUNT,
+    pending_events: [EVENT_QUEUE_CAPACITY]Event = [_]Event{.{ .kind = .swap }} ** EVENT_QUEUE_CAPACITY,
+    event_write_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    event_read_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     frame_buffer: [BUFFER_FRAMES]f32 = [_]f32{0.0} ** BUFFER_FRAMES,
 
     pub fn init(self: *Synth, seed: u64, options: InitOptions) void {
@@ -125,6 +130,9 @@ pub const Synth = struct {
         };
 
         self.stream = stream;
+        callback_owner.store(self, .release);
+        rl.setAudioStreamCallback(stream, audioStreamCallback);
+        self.uses_stream_callback = true;
         rl.playAudioStream(stream);
         self.enabled = true;
     }
@@ -139,6 +147,13 @@ pub const Synth = struct {
 
     pub fn deinit(self: *Synth) void {
         if (self.stream) |stream| {
+            if (self.uses_stream_callback) {
+                rl.setAudioStreamCallback(stream, null);
+                if (callback_owner.load(.acquire) == self) {
+                    callback_owner.store(null, .release);
+                }
+                self.uses_stream_callback = false;
+            }
             rl.unloadAudioStream(stream);
         }
         self.stream = null;
@@ -158,7 +173,7 @@ pub const Synth = struct {
     }
 
     pub fn triggerCount(self: *const Synth, kind: EventKind) u32 {
-        return self.trigger_counts[kindIndex(kind)];
+        return self.trigger_counts[kindIndex(kind)].load(.monotonic);
     }
 
     pub fn debugActiveMaxFreqHz(self: *const Synth) f32 {
@@ -180,8 +195,13 @@ pub const Synth = struct {
     }
 
     pub fn tick(self: *Synth, dt: f32) void {
-        self.updateCooldowns(dt);
         if (!self.enabled) return;
+        if (self.uses_stream_callback) {
+            self.ensureCallbackOwner();
+            return;
+        }
+        self.updateCooldowns(dt);
+        self.consumePendingEvents();
 
         const stream = self.stream orelse return;
         while (rl.isAudioStreamProcessed(stream)) {
@@ -192,11 +212,21 @@ pub const Synth = struct {
 
     pub fn trigger(self: *Synth, event: Event) void {
         if (!self.enabled) return;
+        self.ensureCallbackOwner();
 
+        if (self.uses_stream_callback) {
+            self.enqueueEvent(event);
+            return;
+        }
+
+        self.processEvent(event);
+    }
+
+    fn processEvent(self: *Synth, event: Event) void {
         const event_idx = kindIndex(event.kind);
         if (self.cooldowns[event_idx] > 0.0) return;
         self.cooldowns[event_idx] = cooldownDuration(event.kind);
-        self.trigger_counts[event_idx] += 1;
+        _ = self.trigger_counts[event_idx].fetchAdd(1, .monotonic);
 
         self.emitEvent(event);
     }
@@ -479,7 +509,37 @@ pub const Synth = struct {
     }
 
     fn mixFrameBuffer(self: *Synth) void {
-        for (&self.frame_buffer) |*dst| {
+        self.mixIntoBuffer(self.frame_buffer[0..]);
+    }
+
+    fn enqueueEvent(self: *Synth, event: Event) void {
+        const write = self.event_write_index.load(.monotonic);
+        const read = self.event_read_index.load(.acquire);
+        const next = (write + 1) % EVENT_QUEUE_CAPACITY;
+        if (next == read) return;
+
+        self.pending_events[write] = event;
+        self.event_write_index.store(next, .release);
+    }
+
+    fn popPendingEvent(self: *Synth) ?Event {
+        const read = self.event_read_index.load(.monotonic);
+        const write = self.event_write_index.load(.acquire);
+        if (read == write) return null;
+
+        const event = self.pending_events[read];
+        self.event_read_index.store((read + 1) % EVENT_QUEUE_CAPACITY, .release);
+        return event;
+    }
+
+    fn consumePendingEvents(self: *Synth) void {
+        while (self.popPendingEvent()) |event| {
+            self.processEvent(event);
+        }
+    }
+
+    fn mixIntoBuffer(self: *Synth, buffer: []f32) void {
+        for (buffer) |*dst| {
             var mixed: f32 = 0.0;
 
             for (&self.voices) |*voice| {
@@ -558,11 +618,41 @@ pub const Synth = struct {
         }
     }
 
+    fn updateCooldownsForFrames(self: *Synth, frame_count: usize) void {
+        if (frame_count == 0) return;
+        const dt = @as(f32, @floatFromInt(frame_count)) / @as(f32, @floatFromInt(SAMPLE_RATE));
+        self.updateCooldowns(dt);
+    }
+
+    fn ensureCallbackOwner(self: *Synth) void {
+        if (!self.uses_stream_callback) return;
+        if (callback_owner.load(.acquire) == self) return;
+        callback_owner.store(self, .release);
+    }
+
     fn randSigned(self: *Synth, amount: f32) f32 {
         if (amount <= 0.0) return 0.0;
         return (self.rng.random().float(f32) * 2.0 - 1.0) * amount;
     }
 };
+
+var callback_owner: std.atomic.Value(?*Synth) = std.atomic.Value(?*Synth).init(null);
+
+fn audioStreamCallback(buffer_data: ?*anyopaque, frames: c_uint) callconv(.c) void {
+    const raw = buffer_data orelse return;
+    const frame_count: usize = @intCast(frames);
+    const out_ptr: [*]f32 = @ptrCast(@alignCast(raw));
+    const out = out_ptr[0..frame_count];
+
+    const synth = callback_owner.load(.acquire) orelse {
+        @memset(out, 0.0);
+        return;
+    };
+
+    synth.updateCooldownsForFrames(frame_count);
+    synth.consumePendingEvents();
+    synth.mixIntoBuffer(out);
+}
 
 fn cooldownDuration(kind: EventKind) f32 {
     return switch (kind) {
