@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const utils = @import("../core/utils.zig");
 const engine = @import("../core/engine.zig");
+const merge_rules = @import("../core/merge_rules.zig");
 const animations = @import("../ui/animations.zig");
 
 const SWAP_DURATION: f32 = 0.17;
@@ -50,7 +51,7 @@ pub fn planPlayerTurn(
                 .grants_score = false,
             },
         };
-        try appendResolvePhase(anim, &before_explosion, &blast_mask, outcomes[0..]);
+        try appendResolvePhase(anim, &before_explosion, &blast_mask, outcomes[0..], @as(u64, preview.value));
 
         try engine.explodeBombAt(&work, allocator, rng, bomb_pos);
         try appendFallPhase(anim, &preview.board_after_resolve, &work.board);
@@ -153,7 +154,8 @@ fn appendCascadePhases(
             .k_wave = k_wave,
             .cascade_wave = cascade_wave,
         });
-        try appendResolvePhase(anim, &before, &step.matched_mask, step.outcomes.items);
+        const score_delta = resolveScoreDelta(step.outcomes.items, wave);
+        try appendResolvePhase(anim, &before, &step.matched_mask, step.outcomes.items, score_delta);
         try appendFallPhase(anim, &step.board_after_resolve, &one.board);
 
         work.* = one;
@@ -230,8 +232,10 @@ fn appendResolvePhase(
     board: *const types.Board,
     matched_mask: *const [types.BOARD_ROWS][types.BOARD_COLS]bool,
     outcomes: []const engine.WaveOutcome,
+    score_delta: u64,
 ) !void {
     var phase = animations.Phase.init(.fall_spawn, RESOLVE_DURATION, board.*);
+    phase.score_delta = score_delta;
 
     for (0..types.BOARD_ROWS) |r| {
         for (0..types.BOARD_COLS) |c| {
@@ -251,6 +255,16 @@ fn appendResolvePhase(
     }
 
     try anim.appendPhase(phase);
+}
+
+fn resolveScoreDelta(outcomes: []const engine.WaveOutcome, wave: usize) u64 {
+    const bonus = @as(u64, merge_rules.cascadeWaveBonus(wave));
+    var delta: u64 = 0;
+    for (outcomes) |outcome| {
+        if (!outcome.grants_score or outcome.tile.kind != .number) continue;
+        delta += @as(u64, outcome.tile.value) * bonus;
+    }
+    return delta;
 }
 
 fn appendShufflePhase(

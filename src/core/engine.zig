@@ -714,7 +714,7 @@ pub fn resolveOneWave(
     for (step.outcomes.items) |o| {
         state.board[o.pos.row][o.pos.col] = o.tile;
         if (o.grants_score and o.tile.kind == .number) {
-            merge_rules.applyScoreForMerge(state, o.tile.value);
+            merge_rules.applyScoreForMergeInWave(state, o.tile.value, wave);
         }
     }
 
@@ -767,7 +767,7 @@ pub fn explodeBombAt(
     const preview = try previewBombResolve(allocator, &state.board, origin);
     state.board = preview.board_after_resolve;
     state.board[origin.row][origin.col] = makeNumberTile(state, preview.value);
-    merge_rules.applyScoreForMerge(state, preview.value);
+    merge_rules.applyScoreForMergeInWave(state, preview.value, 0);
 
     applyGravityAndSpawn(state, rng);
     refreshMaxTileAndStatus(state);

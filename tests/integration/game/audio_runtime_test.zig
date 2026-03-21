@@ -6,6 +6,18 @@ const runtime_mod = game.game.runtime;
 const animations = game.ui.animations;
 const engine = game.core.engine;
 
+fn fillBaselineNoLines(board: *types.Board) void {
+    const pattern_a = [_]u32{ 2, 2, 4, 2, 4, 2, 4, 2 };
+    const pattern_b = [_]u32{ 4, 4, 2, 4, 2, 4, 2, 4 };
+
+    for (0..types.BOARD_ROWS) |r| {
+        for (0..types.BOARD_COLS) |c| {
+            const v = if ((r % 2) == 0) pattern_a[c] else pattern_b[c];
+            board[r][c] = types.Tile.number(v);
+        }
+    }
+}
+
 fn emptyBoard() types.Board {
     var board: types.Board = undefined;
     for (0..types.BOARD_ROWS) |r| {
@@ -121,4 +133,33 @@ test "large dt still emits audio for each crossed phase boundary" {
     try std.testing.expectEqual(@as(u32, 1), runtime.audioTriggerCount(.swap));
     try std.testing.expectEqual(@as(u32, 1), runtime.audioTriggerCount(.shuffle));
     try std.testing.expectEqual(@as(u32, 1), runtime.audioTriggerCount(.bomb));
+}
+
+test "score updates when resolve phase begins (tile appears), not after fall starts" {
+    var runtime = runtime_mod.Runtime.initWithAudioOptions(
+        std.testing.allocator,
+        780,
+        .{ .testing_enabled_without_device = true },
+    );
+    defer runtime.deinit();
+
+    fillBaselineNoLines(&runtime.state.board);
+    runtime.state.score = 0;
+    runtime.state.board[0][0] = types.Tile.number(2);
+    runtime.state.board[0][1] = types.Tile.number(2);
+    runtime.state.board[0][2] = types.Tile.number(4);
+    runtime.state.board[0][3] = types.Tile.number(2);
+
+    runtime.debugTryAction(.{ .row = 0, .col = 2 }, .{ .row = 0, .col = 3 });
+
+    try std.testing.expect(runtime.anim.isPresenting());
+    try std.testing.expectEqual(@as(u64, 0), runtime.state.score);
+
+    // Before resolve phase starts: swap(0.17) + match(0.13) = 0.30.
+    runtime.debugPumpAudioAndAnimation(0.29);
+    try std.testing.expectEqual(@as(u64, 0), runtime.state.score);
+
+    // Cross into resolve phase; merged tile is visible at resolve start.
+    runtime.debugPumpAudioAndAnimation(0.03);
+    try std.testing.expect(runtime.state.score > 0);
 }

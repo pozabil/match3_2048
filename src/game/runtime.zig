@@ -21,6 +21,7 @@ pub const Runtime = struct {
     anim: animations.AnimationState = .{},
     synth: audio_synth.Synth = .{},
     pending_state: ?types.GameState = null,
+    score_phase_cursor: usize = 0,
     confirm_open: bool = false,
     confirm_action: restart_confirm.Action = .restart,
     seen_phase_index: usize = 0,
@@ -67,6 +68,11 @@ pub const Runtime = struct {
 
     pub fn debugPumpAudioAndAnimation(self: *Runtime, dt: f32) void {
         self.pumpAnimationAndAudio(dt);
+        self.advanceScoreWithAnimation();
+    }
+
+    pub fn debugTryAction(self: *Runtime, from: types.Position, to: types.Position) void {
+        self.tryAction(from, to);
     }
 
     pub fn reset(self: *Runtime) void {
@@ -74,6 +80,7 @@ pub const Runtime = struct {
         self.selected = null;
         self.drag_start = null;
         self.pending_state = null;
+        self.score_phase_cursor = 0;
         self.confirm_open = false;
         self.touch_down_prev = false;
         self.touch_last_pos = .{ .x = 0.0, .y = 0.0 };
@@ -91,10 +98,12 @@ pub const Runtime = struct {
             self.elapsed_seconds += dt;
         }
         self.pumpAnimationAndAudio(dt);
+        self.advanceScoreWithAnimation();
 
         if (self.pending_state != null and !self.anim.isPresenting()) {
             self.state = self.pending_state.?;
             self.pending_state = null;
+            self.score_phase_cursor = 0;
             self.anim.triggerMove();
         }
 
@@ -296,10 +305,12 @@ pub const Runtime = struct {
 
         self.selected = null;
         self.drag_start = null;
+        self.score_phase_cursor = 0;
         self.pending_state = planned;
         if (!self.anim.isPresenting()) {
             self.state = planned;
             self.pending_state = null;
+            self.score_phase_cursor = 0;
             self.anim.triggerMove();
         }
     }
@@ -320,11 +331,29 @@ pub const Runtime = struct {
             return;
         };
 
+        self.score_phase_cursor = 0;
         self.pending_state = planned;
         if (!self.anim.isPresenting()) {
             self.state = planned;
             self.pending_state = null;
+            self.score_phase_cursor = 0;
             self.anim.triggerMove();
+        }
+    }
+
+    fn advanceScoreWithAnimation(self: *Runtime) void {
+        if (self.pending_state == null) return;
+        if (self.anim.phase_count == 0) return;
+
+        const revealed_phase_index: usize = if (self.anim.isPresenting())
+            self.anim.phase_index
+        else
+            self.anim.phase_count - 1;
+
+        while (self.score_phase_cursor <= revealed_phase_index and self.score_phase_cursor < self.anim.phase_count) {
+            const delta = self.anim.phases[self.score_phase_cursor].score_delta;
+            if (delta > 0) self.state.score += delta;
+            self.score_phase_cursor += 1;
         }
     }
 
