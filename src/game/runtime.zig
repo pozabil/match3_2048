@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const rl = @import("raylib");
 const types = @import("../core/types.zig");
 const config = @import("../core/config.zig");
@@ -9,6 +10,7 @@ const animations = @import("../ui/animations.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
 const audio_synth = @import("../audio/synth.zig");
 const MAX_PHASE_AUDIO_STEP: f32 = 0.05;
+const IS_WEB = builtin.target.os.tag == .emscripten;
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
@@ -24,6 +26,9 @@ pub const Runtime = struct {
     seen_phase_index: usize = 0,
     seen_phase_presenting: bool = false,
     last_status_seen: types.GameStatus = .running,
+    touch_down_prev: bool = false,
+    touch_last_pos: rl.Vector2 = .{ .x = 0.0, .y = 0.0 },
+    suppress_mouse_until: f64 = 0.0,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) Runtime {
         return initWithAudioOptions(allocator, seed, .{});
@@ -69,6 +74,9 @@ pub const Runtime = struct {
         self.drag_start = null;
         self.pending_state = null;
         self.confirm_open = false;
+        self.touch_down_prev = false;
+        self.touch_last_pos = .{ .x = 0.0, .y = 0.0 };
+        self.suppress_mouse_until = 0.0;
         board_init.initializeBoard(&self.state, self.prng.random());
         self.anim.reset();
         self.syncPhaseCursor();
@@ -117,37 +125,93 @@ pub const Runtime = struct {
 
         if (self.anim.isPresenting()) return;
 
-        if (rl.isMouseButtonPressed(.left)) {
-            const m = rl.getMousePosition();
-            self.drag_start = board_renderer.mouseToCell(@as(i32, @intFromFloat(m.x)), @as(i32, @intFromFloat(m.y)));
+        if (self.handleTouchGameplayInput()) {
+            return;
+        }
 
-            if (self.drag_start) |p| {
-                if (self.selected == null) {
-                    self.selected = p;
-                } else if (self.selected) |s| {
-                    if (s.row == p.row and s.col == p.col) {
-                        self.selected = null;
-                    } else {
-                        self.tryAction(s, p);
-                        self.selected = null;
-                    }
-                }
-            }
+        if (rl.getTime() < self.suppress_mouse_until) return;
+
+        if (rl.isMouseButtonPressed(.left)) {
+            self.drag_start = self.boardCellFromMouse();
         }
 
         if (rl.isMouseButtonReleased(.left)) {
-            const m = rl.getMousePosition();
-            const end = board_renderer.mouseToCell(@as(i32, @intFromFloat(m.x)), @as(i32, @intFromFloat(m.y)));
-            if (self.drag_start) |start| {
-                if (end) |finish| {
-                    if (!(start.row == finish.row and start.col == finish.col)) {
-                        self.tryAction(start, finish);
-                        self.selected = null;
-                    }
-                }
-            }
+            self.handlePointerRelease(self.boardCellFromMouse());
             self.drag_start = null;
         }
+    }
+
+    fn boardCellFromMouse(self: *const Runtime) ?types.Position {
+        const m = self.logicalMousePosition();
+        return self.boardCellFromPoint(m);
+    }
+
+    fn boardCellFromPoint(self: *const Runtime, point: rl.Vector2) ?types.Position {
+        _ = self;
+        return board_renderer.mouseToCell(
+            @as(i32, @intFromFloat(point.x)),
+            @as(i32, @intFromFloat(point.y)),
+        );
+    }
+
+    fn logicalMousePosition(self: *const Runtime) rl.Vector2 {
+        _ = self;
+        const m = rl.getMousePosition();
+        if (!IS_WEB) return m;
+        const screen_w = @as(f32, @floatFromInt(@max(rl.getScreenWidth(), 1)));
+        const screen_h = @as(f32, @floatFromInt(@max(rl.getScreenHeight(), 1)));
+        const render_w = @as(f32, @floatFromInt(@max(rl.getRenderWidth(), 1)));
+        const render_h = @as(f32, @floatFromInt(@max(rl.getRenderHeight(), 1)));
+
+        return .{
+            .x = m.x * (screen_w / render_w),
+            .y = m.y * (screen_h / render_h),
+        };
+    }
+
+    fn logicalTouchPosition(self: *const Runtime, index: i32) rl.Vector2 {
+        _ = self;
+        const t = rl.getTouchPosition(index);
+        if (!IS_WEB) return t;
+        const screen_w = @as(f32, @floatFromInt(@max(rl.getScreenWidth(), 1)));
+        const screen_h = @as(f32, @floatFromInt(@max(rl.getScreenHeight(), 1)));
+        const render_w = @as(f32, @floatFromInt(@max(rl.getRenderWidth(), 1)));
+        const render_h = @as(f32, @floatFromInt(@max(rl.getRenderHeight(), 1)));
+
+        return .{
+            .x = t.x * (screen_w / render_w),
+            .y = t.y * (screen_h / render_h),
+        };
+    }
+
+    fn adjacentBySwipeDirection(start: types.Position, finish: types.Position) ?types.Position {
+        const dr = @as(i32, @intCast(finish.row)) - @as(i32, @intCast(start.row));
+        const dc = @as(i32, @intCast(finish.col)) - @as(i32, @intCast(start.col));
+        if (dr == 0 and dc == 0) return null;
+
+        var out = start;
+        const abs_dr = if (dr < 0) -dr else dr;
+        const abs_dc = if (dc < 0) -dc else dc;
+
+        if (abs_dc >= abs_dr) {
+            if (dc > 0) {
+                if (start.col + 1 >= types.BOARD_COLS) return null;
+                out.col = start.col + 1;
+            } else {
+                if (start.col == 0) return null;
+                out.col = start.col - 1;
+            }
+        } else {
+            if (dr > 0) {
+                if (start.row + 1 >= types.BOARD_ROWS) return null;
+                out.row = start.row + 1;
+            } else {
+                if (start.row == 0) return null;
+                out.row = start.row - 1;
+            }
+        }
+
+        return out;
     }
 
     fn handleConfirmInput(self: *Runtime) void {
@@ -161,8 +225,31 @@ pub const Runtime = struct {
             return;
         }
 
+        const touch_count = rl.getTouchPointCount();
+        const touch_down = touch_count > 0;
+        if (touch_down) {
+            self.touch_last_pos = self.logicalTouchPosition(0);
+        }
+        if (!touch_down and self.touch_down_prev) {
+            if (restart_confirm.hitTest(self.touch_last_pos.x, self.touch_last_pos.y)) |choice| {
+                switch (choice) {
+                    .yes => self.applyConfirmedAction(),
+                    .no => self.confirm_open = false,
+                }
+                self.touch_down_prev = false;
+                self.suppress_mouse_until = rl.getTime() + 0.25;
+                return;
+            }
+            self.touch_down_prev = false;
+            self.suppress_mouse_until = rl.getTime() + 0.25;
+        } else {
+            self.touch_down_prev = touch_down;
+        }
+
+        if (rl.getTime() < self.suppress_mouse_until) return;
+
         if (rl.isMouseButtonPressed(.left)) {
-            const m = rl.getMousePosition();
+            const m = self.logicalMousePosition();
             if (restart_confirm.hitTest(m.x, m.y)) |choice| {
                 switch (choice) {
                     .yes => self.applyConfirmedAction(),
@@ -319,5 +406,57 @@ pub const Runtime = struct {
     fn syncPhaseCursor(self: *Runtime) void {
         self.seen_phase_presenting = self.anim.isPresenting();
         self.seen_phase_index = self.anim.phase_index;
+    }
+
+    fn handleTouchGameplayInput(self: *Runtime) bool {
+        const touch_count = rl.getTouchPointCount();
+        const touch_down = touch_count > 0;
+        if (touch_down) {
+            self.touch_last_pos = self.logicalTouchPosition(0);
+        }
+
+        if (touch_down and !self.touch_down_prev) {
+            self.drag_start = self.boardCellFromPoint(self.touch_last_pos);
+            self.touch_down_prev = true;
+            self.suppress_mouse_until = rl.getTime() + 0.25;
+            return true;
+        }
+
+        if (!touch_down and self.touch_down_prev) {
+            self.handlePointerRelease(self.boardCellFromPoint(self.touch_last_pos));
+            self.drag_start = null;
+            self.touch_down_prev = false;
+            self.suppress_mouse_until = rl.getTime() + 0.25;
+            return true;
+        }
+
+        self.touch_down_prev = touch_down;
+        return touch_down;
+    }
+
+    fn handlePointerRelease(self: *Runtime, end: ?types.Position) void {
+        if (self.drag_start) |start| {
+            if (end) |finish| {
+                if (!(start.row == finish.row and start.col == finish.col)) {
+                    // Drag gesture: choose one adjacent target by swipe direction.
+                    if (adjacentBySwipeDirection(start, finish)) |target| {
+                        self.tryAction(start, target);
+                    }
+                    self.selected = null;
+                } else {
+                    // Click/tap gesture: select/toggle, or perform click+click swap.
+                    if (self.selected) |s| {
+                        if (s.row == start.row and s.col == start.col) {
+                            self.selected = null;
+                        } else {
+                            self.tryAction(s, start);
+                            self.selected = null;
+                        }
+                    } else {
+                        self.selected = start;
+                    }
+                }
+            }
+        }
     }
 };

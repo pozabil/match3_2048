@@ -1,11 +1,14 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const rl = @import("raylib");
 
-pub const SAMPLE_RATE: u32 = 48_000;
+const IS_WEB = builtin.target.os.tag == .emscripten;
+
+pub const SAMPLE_RATE: u32 = if (IS_WEB) 44_100 else 48_000;
 pub const SAMPLE_SIZE_BITS: u32 = 32;
 pub const CHANNELS: u32 = 1;
-pub const BUFFER_FRAMES: usize = 1024;
-pub const MAX_VOICES: usize = 8;
+pub const BUFFER_FRAMES: usize = if (IS_WEB) 2048 else 1024;
+pub const MAX_VOICES: usize = if (IS_WEB) 6 else 8;
 
 pub const InitOptions = struct {
     master_volume: f32 = 0.35,
@@ -500,14 +503,14 @@ pub const Synth = struct {
         var phase_inc = voice.phase_inc;
         var amp_mod: f32 = 1.0;
 
-        if (voice.vibrato_depth > 0.0 and voice.vibrato_phase_inc > 0.0) {
+        if (!IS_WEB and voice.vibrato_depth > 0.0 and voice.vibrato_phase_inc > 0.0) {
             const vib = std.math.sin(voice.vibrato_phase * std.math.tau);
             phase_inc *= 1.0 + vib * voice.vibrato_depth;
             voice.vibrato_phase += voice.vibrato_phase_inc;
             if (voice.vibrato_phase >= 1.0) voice.vibrato_phase -= @floor(voice.vibrato_phase);
         }
 
-        if (voice.pitch_drift_depth > 0.0) {
+        if (!IS_WEB and voice.pitch_drift_depth > 0.0) {
             voice.noise_state = xorshift32(voice.noise_state);
             const rnd = randSignedFromState(voice.noise_state);
             voice.pitch_drift = std.math.clamp(
@@ -518,7 +521,7 @@ pub const Synth = struct {
             phase_inc *= 1.0 + voice.pitch_drift;
         }
 
-        if (voice.tremolo_depth > 0.0 and voice.tremolo_phase_inc > 0.0) {
+        if (!IS_WEB and voice.tremolo_depth > 0.0 and voice.tremolo_phase_inc > 0.0) {
             const trem = (std.math.sin(voice.tremolo_phase * std.math.tau) + 1.0) * 0.5;
             amp_mod = (1.0 - voice.tremolo_depth * 0.5) + trem * voice.tremolo_depth;
             voice.tremolo_phase += voice.tremolo_phase_inc;
