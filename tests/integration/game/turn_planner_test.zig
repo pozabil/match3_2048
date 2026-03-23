@@ -3,7 +3,6 @@ const game = @import("match3_2048");
 
 const cfg = game.core.config;
 const types = game.core.types;
-const player_move = game.core.player_move;
 const engine = game.core.engine;
 const turn_planner = game.game.turn_planner;
 const animations = game.ui.animations;
@@ -44,7 +43,7 @@ test "turn planner matches core final state for same seed" {
     var prng_a = std.Random.DefaultPrng.init(54321);
     var prng_b = std.Random.DefaultPrng.init(54321);
 
-    try player_move.applyPlayerAction(
+    try turn_planner.applyPlayerTurn(
         &expected,
         std.testing.allocator,
         prng_a.random(),
@@ -294,7 +293,7 @@ test "manual shuffle planner matches core final state and keeps phase pipeline" 
     expected.shuffles_left -= 1;
     try engine.shuffleBoard(&expected, std.testing.allocator, prng_a.random());
     try engine.settleShuffledBoard(&expected, std.testing.allocator, prng_a.random());
-    try engine.enforcePostMoveState(&expected, std.testing.allocator, prng_a.random());
+    try turn_planner.enforcePostMoveState(&expected, std.testing.allocator, prng_a.random());
 
     var anim: animations.AnimationState = .{};
     anim.reset();

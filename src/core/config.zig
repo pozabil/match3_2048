@@ -12,7 +12,7 @@ pub const GameConfig = struct {
     // Startup board uses more 4s to reduce dense clusters of 2s.
     start_spawn_two_weight: u8 = 70,
     start_spawn_four_weight: u8 = 30,
-    max_cascade_waves: u16 = 256,
+    max_cascade_waves: u16 = 80,
     initial_shuffles: u8 = 1,
 };
 

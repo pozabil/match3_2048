@@ -76,6 +76,24 @@ pub fn planPlayerTurn(
     return work;
 }
 
+pub fn applyPlayerTurn(
+    state: *types.GameState,
+    allocator: std.mem.Allocator,
+    rng: std.Random,
+    from: types.Position,
+    to: types.Position,
+) !void {
+    var anim: animations.AnimationState = .{};
+    anim.reset();
+    state.* = try planPlayerTurn(state, allocator, rng, from, to, &anim);
+}
+
+pub fn enforcePostMoveState(state: *types.GameState, allocator: std.mem.Allocator, rng: std.Random) !void {
+    var anim: animations.AnimationState = .{};
+    anim.reset();
+    try appendPostMoveResolutionPhases(state, allocator, rng, &anim);
+}
+
 pub fn planManualShuffle(
     base_state: *const types.GameState,
     allocator: std.mem.Allocator,

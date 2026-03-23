@@ -97,6 +97,7 @@ pub const Synth = struct {
     event_write_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     event_read_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     frame_buffer: [BUFFER_FRAMES]f32 = [_]f32{0.0} ** BUFFER_FRAMES,
+    in_callback: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     pub fn init(self: *Synth, seed: u64, options: InitOptions) void {
         self.deinit();
@@ -150,7 +151,11 @@ pub const Synth = struct {
             if (self.uses_stream_callback) {
                 rl.setAudioStreamCallback(stream, null);
                 if (callback_owner.load(.acquire) == self) {
-                    callback_owner.store(null, .release);
+                    callback_owner.store(null, .seq_cst);
+                    var spins: usize = 0;
+                    while (self.in_callback.load(.acquire) and spins < 10_000) : (spins += 1) {
+                        std.atomic.spinLoopHint();
+                    }
                 }
                 self.uses_stream_callback = false;
             }
@@ -648,6 +653,14 @@ fn audioStreamCallback(buffer_data: ?*anyopaque, frames: c_uint) callconv(.c) vo
         @memset(out, 0.0);
         return;
     };
+
+    synth.in_callback.store(true, .seq_cst);
+    defer synth.in_callback.store(false, .release);
+
+    if (callback_owner.load(.acquire) == null) {
+        @memset(out, 0.0);
+        return;
+    }
 
     synth.updateCooldownsForFrames(frame_count);
     synth.consumePendingEvents();
