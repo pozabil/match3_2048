@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const rl = @import("raylib");
 const types = @import("../core/types.zig");
 const config = @import("../core/config.zig");
-const board_init = @import("../core/board_init.zig");
+const engine = @import("../core/engine.zig");
 const turn_planner = @import("turn_planner.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const animations = @import("../ui/animations.zig");
@@ -46,7 +46,7 @@ pub const Runtime = struct {
             .prng = std.Random.DefaultPrng.init(seed),
             .state = types.GameState.init(config.defaultConfig()),
         };
-        board_init.initializeBoard(&runtime.state, runtime.prng.random());
+        engine.initializeBoard(&runtime.state, runtime.prng.random());
         runtime.anim.reset();
         runtime.synth.init(seed ^ 0x9E3779B97F4A7C15, audio_options);
         runtime.syncPhaseCursor();
@@ -86,7 +86,7 @@ pub const Runtime = struct {
         self.touch_last_pos = .{ .x = 0.0, .y = 0.0 };
         self.suppress_mouse_until = 0.0;
         self.elapsed_seconds = 0.0;
-        board_init.initializeBoard(&self.state, self.prng.random());
+        engine.initializeBoard(&self.state, self.prng.random());
         self.anim.reset();
         self.syncPhaseCursor();
         self.last_status_seen = self.state.status;
@@ -170,32 +170,12 @@ pub const Runtime = struct {
 
     fn logicalMousePosition(self: *const Runtime) rl.Vector2 {
         _ = self;
-        const m = rl.getMousePosition();
-        if (!IS_WEB) return m;
-        const screen_w = @as(f32, @floatFromInt(@max(rl.getScreenWidth(), 1)));
-        const screen_h = @as(f32, @floatFromInt(@max(rl.getScreenHeight(), 1)));
-        const render_w = @as(f32, @floatFromInt(@max(rl.getRenderWidth(), 1)));
-        const render_h = @as(f32, @floatFromInt(@max(rl.getRenderHeight(), 1)));
-
-        return .{
-            .x = m.x * (screen_w / render_w),
-            .y = m.y * (screen_h / render_h),
-        };
+        return scaleToLogical(rl.getMousePosition());
     }
 
     fn logicalTouchPosition(self: *const Runtime, index: i32) rl.Vector2 {
         _ = self;
-        const t = rl.getTouchPosition(index);
-        if (!IS_WEB) return t;
-        const screen_w = @as(f32, @floatFromInt(@max(rl.getScreenWidth(), 1)));
-        const screen_h = @as(f32, @floatFromInt(@max(rl.getScreenHeight(), 1)));
-        const render_w = @as(f32, @floatFromInt(@max(rl.getRenderWidth(), 1)));
-        const render_h = @as(f32, @floatFromInt(@max(rl.getRenderHeight(), 1)));
-
-        return .{
-            .x = t.x * (screen_w / render_w),
-            .y = t.y * (screen_h / render_h),
-        };
+        return scaleToLogical(rl.getTouchPosition(index));
     }
 
     fn adjacentBySwipeDirection(start: types.Position, finish: types.Position) ?types.Position {
@@ -494,3 +474,15 @@ pub const Runtime = struct {
         }
     }
 };
+
+fn scaleToLogical(raw: rl.Vector2) rl.Vector2 {
+    if (!IS_WEB) return raw;
+    const screen_w = @as(f32, @floatFromInt(@max(rl.getScreenWidth(), 1)));
+    const screen_h = @as(f32, @floatFromInt(@max(rl.getScreenHeight(), 1)));
+    const render_w = @as(f32, @floatFromInt(@max(rl.getRenderWidth(), 1)));
+    const render_h = @as(f32, @floatFromInt(@max(rl.getRenderHeight(), 1)));
+    return .{
+        .x = raw.x * (screen_w / render_w),
+        .y = raw.y * (screen_h / render_h),
+    };
+}

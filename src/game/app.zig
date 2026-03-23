@@ -14,7 +14,11 @@ extern fn emscripten_set_main_loop_arg(
     simulate_infinite_loop: c_int,
 ) void;
 
-var web_runtime_storage: runtime_mod.Runtime = undefined;
+// Zero-initialized to avoid passing uninitialized memory to the C callback if the
+// is_web branch were ever skipped. deinit() is intentionally never called on the
+// web path: page lifetime equals game lifetime, and Emscripten unloads the heap
+// on page close anyway.
+var web_runtime_storage: runtime_mod.Runtime = std.mem.zeroes(runtime_mod.Runtime);
 
 fn frame(runtime: *runtime_mod.Runtime) void {
     runtime.tick();

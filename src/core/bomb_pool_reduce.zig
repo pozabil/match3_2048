@@ -23,7 +23,7 @@ pub fn reducePoolToSingleValue(allocator: std.mem.Allocator, values: []const u32
         if (pair_index) |idx| {
             _ = pool.orderedRemove(idx);
             _ = pool.orderedRemove(0);
-            try pool.append(allocator, smallest * 2);
+            try pool.append(allocator, smallest *| 2);
         } else {
             _ = pool.orderedRemove(0);
             if (pool.items.len == 0) {

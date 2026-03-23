@@ -3,7 +3,7 @@ const game = @import("match3_2048");
 
 const types = game.core.types;
 const cfg = game.core.config;
-const resolve = game.core.resolve_loop;
+const engine = game.core.engine;
 
 fn fillNoMatches(board: *types.Board) void {
     for (0..types.BOARD_ROWS) |r| {
@@ -24,7 +24,7 @@ test "resolve loop processes at least one wave" {
     state.board[0][2] = types.Tile.number(2);
 
     var prng = std.Random.DefaultPrng.init(42);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(state.stats.cascade_waves >= 1);
     try std.testing.expect(state.score >= 4);

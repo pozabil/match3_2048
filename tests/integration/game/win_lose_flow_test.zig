@@ -3,7 +3,7 @@ const game = @import("match3_2048");
 
 const types = game.core.types;
 const cfg = game.core.config;
-const resolve = game.core.resolve_loop;
+const engine = game.core.engine;
 
 fn fillNoMatches(board: *types.Board) void {
     for (0..types.BOARD_ROWS) |r| {
@@ -23,7 +23,7 @@ test "status becomes won when 2048+ is created" {
     state.board[2][3] = types.Tile.number(1024);
 
     var prng = std.Random.DefaultPrng.init(99);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expectEqual(types.GameStatus.won, state.status);
 }

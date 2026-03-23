@@ -73,6 +73,16 @@ pub fn boardHasAnyBomb(board: *const types.Board) bool {
     return false;
 }
 
+pub fn falseMask() [types.BOARD_ROWS][types.BOARD_COLS]bool {
+    var out: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
+    for (0..types.BOARD_ROWS) |r| {
+        for (0..types.BOARD_COLS) |c| {
+            out[r][c] = false;
+        }
+    }
+    return out;
+}
+
 pub fn setMaxTile(state: *types.GameState) void {
     var max_v: u32 = 0;
     for (state.board) |row| {

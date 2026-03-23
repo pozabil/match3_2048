@@ -1,11 +1,12 @@
+const std = @import("std");
 const types = @import("types.zig");
 
 pub fn mergedValue(base_value: u32, line_len: usize) u32 {
-    if (line_len < 3) return base_value;
+    std.debug.assert(line_len >= 3);
     var out = base_value;
     var i: usize = 0;
     while (i < line_len - 2) : (i += 1) {
-        out *= 2;
+        out *|= 2;
     }
     return out;
 }

@@ -28,7 +28,7 @@ pub const WaveStep = struct {
         return .{
             .had_match = false,
             .max_line_len = 0,
-            .matched_mask = falseMask(),
+            .matched_mask = utils.falseMask(),
             .outcomes = .empty,
             .board_after_resolve = board,
         };
@@ -59,6 +59,8 @@ const ShuffleBudget = struct {
     max_groups: usize,
 };
 
+const MAX_SHUFFLE_REDUCE_PASSES: usize = 256;
+
 const SHUFFLE_BUDGETS = [_]ShuffleBudget{
     .{ .attempts = 32, .max_groups = 3 },
     .{ .attempts = 16, .max_groups = 4 },
@@ -80,7 +82,8 @@ fn makeBombTile(state: *types.GameState, value: u32) types.Tile {
     return types.Tile.bombWithId(value, issueTileId(state));
 }
 
-fn wouldCreateLine3(board: *const types.Board, row: usize, col: usize, value: u32) bool {
+// fillWouldCreateLine: checks only left and up neighbors — correct for raster fill order
+fn fillWouldCreateLine(board: *const types.Board, row: usize, col: usize, value: u32) bool {
     if (col >= 2) {
         const l1 = board[row][col - 1];
         const l2 = board[row][col - 2];
@@ -112,9 +115,9 @@ fn fillBoardStartupNoLineMatches(state: *types.GameState, rng: std.Random) void 
             const primary = utils.randomStartTile(rng, state.cfg).value;
             const secondary: u32 = if (primary == 2) 4 else 2;
 
-            if (!wouldCreateLine3(&state.board, r, c, primary)) {
+            if (!fillWouldCreateLine(&state.board, r, c, primary)) {
                 state.board[r][c] = makeNumberTile(state, primary);
-            } else if (!wouldCreateLine3(&state.board, r, c, secondary)) {
+            } else if (!fillWouldCreateLine(&state.board, r, c, secondary)) {
                 state.board[r][c] = makeNumberTile(state, secondary);
             } else {
                 state.board[r][c] = makeNumberTile(state, primary);
@@ -151,7 +154,6 @@ pub fn initializeBoard(state: *types.GameState, rng: std.Random) void {
         state.shuffle_bonus_1024_awarded = false;
         state.stats = .{};
         state.status = .running;
-        state.input_locked = false;
         utils.setMaxTile(state);
         return;
     }
@@ -164,7 +166,6 @@ pub fn initializeBoard(state: *types.GameState, rng: std.Random) void {
     state.shuffle_bonus_1024_awarded = false;
     state.stats = .{};
     state.status = .running;
-    state.input_locked = false;
     utils.setMaxTile(state);
 }
 
@@ -172,13 +173,13 @@ pub fn hasValidMove(board: *const types.Board) bool {
     for (0..types.BOARD_ROWS) |r| {
         for (0..types.BOARD_COLS) |c| {
             const from = types.Position{ .row = r, .col = c };
-            const neighbors = [_]types.Position{
-                .{ .row = r, .col = if (c + 1 < types.BOARD_COLS) c + 1 else c },
-                .{ .row = if (r + 1 < types.BOARD_ROWS) r + 1 else r, .col = c },
+            const neighbors = [2]?types.Position{
+                if (c + 1 < types.BOARD_COLS) .{ .row = r, .col = c + 1 } else null,
+                if (r + 1 < types.BOARD_ROWS) .{ .row = r + 1, .col = c } else null,
             };
 
-            for (neighbors) |to| {
-                if (to.row == from.row and to.col == from.col) continue;
+            for (neighbors) |maybe_to| {
+                const to = maybe_to orelse continue;
 
                 const a = board[from.row][from.col] orelse continue;
                 const b = board[to.row][to.col] orelse continue;
@@ -251,7 +252,7 @@ fn placeItemsOnBoard(state: *types.GameState, items: []const types.Tile) void {
 
 fn reduceReadyGroupsAfterShuffle(state: *types.GameState, allocator: std.mem.Allocator) !void {
     var guard: usize = 0;
-    while (guard < 256) : (guard += 1) {
+    while (guard < MAX_SHUFFLE_REDUCE_PASSES) : (guard += 1) {
         var lines = try match_lines.findLineMatches(allocator, &state.board);
         defer lines.deinit(allocator);
 
@@ -297,7 +298,7 @@ fn lineAnchorPosition(m: match_lines.LineMatch) types.Position {
 }
 
 fn stepDownNominal(value: u32) u32 {
-    if (value == 2) return 4;
+    if (value == 2) return 4; // this is special case
     return value / 2;
 }
 
@@ -325,9 +326,6 @@ pub fn applyPlayerAction(
 
     const from_tile = state.board[from.row][from.col] orelse return error.EmptySource;
     const to_tile = state.board[to.row][to.col] orelse return error.EmptyTarget;
-
-    state.input_locked = true;
-    defer state.input_locked = false;
 
     utils.swap(&state.board, from, to);
 
@@ -438,16 +436,6 @@ fn positionSliceContains(positions: []const types.Position, target: types.Positi
     return false;
 }
 
-fn singleLineMergedValue(base_value: u32, line_len: usize) u32 {
-    std.debug.assert(line_len >= 3);
-    var out = base_value;
-    var i: usize = 0;
-    while (i < line_len - 2) : (i += 1) {
-        out *= 2;
-    }
-    return out;
-}
-
 fn applyGravityAndSpawn(state: *types.GameState, rng: std.Random) void {
     const high_tier_spawn = boardHasTileAtLeast(&state.board, state.cfg.high_tier_spawn_threshold);
 
@@ -483,11 +471,8 @@ fn boardHasTileAtLeast(board: *const types.Board, threshold: u32) bool {
     return false;
 }
 
-fn refreshMaxTileAndStatus(state: *types.GameState) void {
+fn refreshMaxTile(state: *types.GameState) void {
     utils.setMaxTile(state);
-    if (state.max_tile >= 2048) {
-        state.status = .won;
-    }
 }
 
 const LineOrientation = enum {
@@ -498,16 +483,6 @@ const LineOrientation = enum {
 fn lineOrientation(m: match_lines.LineMatch) LineOrientation {
     if (m.len >= 2 and m.positions[0].row == m.positions[1].row) return .horizontal;
     return .vertical;
-}
-
-fn falseMask() [types.BOARD_ROWS][types.BOARD_COLS]bool {
-    var out: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
-    for (0..types.BOARD_ROWS) |r| {
-        for (0..types.BOARD_COLS) |c| {
-            out[r][c] = false;
-        }
-    }
-    return out;
 }
 
 fn isBombIntersectionAt(
@@ -524,19 +499,6 @@ fn isBombIntersectionAt(
     const h_line = lines[@as(usize, @intCast(h_idx))];
     const v_line = lines[@as(usize, @intCast(v_idx))];
     return h_line.len >= 4 and v_line.len >= 4;
-}
-
-fn appendUniquePosition(
-    list: *[types.BOARD_ROWS * types.BOARD_COLS]types.Position,
-    count: *usize,
-    p: types.Position,
-) void {
-    var i: usize = 0;
-    while (i < count.*) : (i += 1) {
-        if (list[i].row == p.row and list[i].col == p.col) return;
-    }
-    list[count.*] = p;
-    count.* += 1;
 }
 
 fn isSingleLine(cells: []const types.Position) bool {
@@ -563,7 +525,7 @@ fn cellPoolValue(value: u32, count: usize) u32 {
     var out = value;
     var n = count;
     while (n >= 2) : (n >>= 1) {
-        out *= 2;
+        out *|= 2;
     }
     return out;
 }
@@ -591,7 +553,7 @@ pub fn resolveOneWave(
     }
     try step.outcomes.ensureTotalCapacity(allocator, lines.items.len);
 
-    var matched = falseMask();
+    var matched = utils.falseMask();
     for (lines.items) |m| {
         for (0..m.len) |i| {
             const p = m.positions[i];
@@ -620,7 +582,7 @@ pub fn resolveOneWave(
         }
     }
 
-    var visited = falseMask();
+    var visited = utils.falseMask();
     var queue: [types.BOARD_ROWS * types.BOARD_COLS]types.Position = undefined;
 
     for (0..types.BOARD_ROWS) |r| {
@@ -652,18 +614,20 @@ pub fn resolveOneWave(
                 component.len += 1;
 
                 if (isBombIntersectionAt(p.row, p.col, &horizontal_line_idx, &vertical_line_idx, lines.items)) {
-                    appendUniquePosition(&component.intersections, &component.intersection_count, p);
+                    // BFS visits each cell exactly once, so p is always unique here
+                    component.intersections[component.intersection_count] = p;
+                    component.intersection_count += 1;
                 }
 
-                const neighbors = [_]types.Position{
-                    .{ .row = if (p.row == 0) p.row else p.row - 1, .col = p.col },
-                    .{ .row = if (p.row + 1 >= types.BOARD_ROWS) p.row else p.row + 1, .col = p.col },
-                    .{ .row = p.row, .col = if (p.col == 0) p.col else p.col - 1 },
-                    .{ .row = p.row, .col = if (p.col + 1 >= types.BOARD_COLS) p.col else p.col + 1 },
+                const neighbors = [4]?types.Position{
+                    if (p.row > 0) .{ .row = p.row - 1, .col = p.col } else null,
+                    if (p.row + 1 < types.BOARD_ROWS) .{ .row = p.row + 1, .col = p.col } else null,
+                    if (p.col > 0) .{ .row = p.row, .col = p.col - 1 } else null,
+                    if (p.col + 1 < types.BOARD_COLS) .{ .row = p.row, .col = p.col + 1 } else null,
                 };
 
-                for (neighbors) |n| {
-                    if (n.row == p.row and n.col == p.col) continue;
+                for (neighbors) |maybe_n| {
+                    const n = maybe_n orelse continue;
                     if (visited[n.row][n.col]) continue;
                     if (!matched[n.row][n.col]) continue;
 
@@ -691,7 +655,7 @@ pub fn resolveOneWave(
                 });
             } else {
                 const pos = chooseComponentOutcomePosition(source, wave, cells);
-                const merged_value = if (isSingleLine(cells)) singleLineMergedValue(component.value, component.len) else pool_result;
+                const merged_value = if (isSingleLine(cells)) merge_rules.mergedValue(component.value, component.len) else pool_result;
                 try step.outcomes.append(allocator, .{
                     .pos = pos,
                     .tile = makeNumberTile(state, merged_value),
@@ -721,7 +685,7 @@ pub fn resolveOneWave(
     step.board_after_resolve = state.board;
 
     applyGravityAndSpawn(state, rng);
-    refreshMaxTileAndStatus(state);
+    refreshMaxTile(state);
 
     return step;
 }
@@ -770,7 +734,7 @@ pub fn explodeBombAt(
     merge_rules.applyScoreForMergeInWave(state, preview.value, 0);
 
     applyGravityAndSpawn(state, rng);
-    refreshMaxTileAndStatus(state);
+    refreshMaxTile(state);
 }
 
 pub fn previewBombResolve(

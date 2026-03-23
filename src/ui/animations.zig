@@ -113,9 +113,10 @@ pub const AnimationState = struct {
     }
 
     pub fn tileScale(self: *const AnimationState, row: usize, col: usize) f32 {
+        const intro_boost = 0.06 * self.intro;
+        if (self.move_pulse < 0.0001) return 1.0 + intro_boost;
         const phase = self.clock * 16.0 + @as(f32, @floatFromInt(row * 7 + col * 13));
         const wobble = std.math.sin(phase) * 0.02 * self.move_pulse;
-        const intro_boost = 0.06 * self.intro;
         return 1.0 + wobble + intro_boost;
     }
 

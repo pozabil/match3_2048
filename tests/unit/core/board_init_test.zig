@@ -3,23 +3,22 @@ const game = @import("match3_2048");
 
 const types = game.core.types;
 const cfg = game.core.config;
-const board_init = game.core.board_init;
+const engine = game.core.engine;
 const match_lines = game.core.match_lines;
-const move_scan = game.core.move_scan;
 
 test "startup board has no auto-line-matches and has at least one valid move" {
     var state = types.GameState.init(cfg.defaultConfig());
     var prng = std.Random.DefaultPrng.init(123456);
-    board_init.initializeBoard(&state, prng.random());
+    engine.initializeBoard(&state, prng.random());
 
     try std.testing.expect(!match_lines.hasAnyLineMatch(&state.board));
-    try std.testing.expect(move_scan.hasValidMove(&state.board));
+    try std.testing.expect(engine.hasValidMove(&state.board));
 }
 
 test "startup board uses increased 4 share vs normal spawn defaults" {
     var state = types.GameState.init(cfg.defaultConfig());
     var prng = std.Random.DefaultPrng.init(987654);
-    board_init.initializeBoard(&state, prng.random());
+    engine.initializeBoard(&state, prng.random());
 
     var twos: usize = 0;
     var fours: usize = 0;

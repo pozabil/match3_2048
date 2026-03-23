@@ -2,7 +2,7 @@ const std = @import("std");
 const game = @import("match3_2048");
 
 const types = game.core.types;
-const move_scan = game.core.move_scan;
+const engine = game.core.engine;
 
 fn clear(board: *types.Board) void {
     for (0..types.BOARD_ROWS) |r| {
@@ -22,7 +22,7 @@ test "has valid move on simple swap" {
     board[0][2] = types.Tile.number(4);
     board[0][3] = types.Tile.number(2);
 
-    try std.testing.expect(move_scan.hasValidMove(&board));
+    try std.testing.expect(engine.hasValidMove(&board));
 }
 
 test "bomb adjacency is always valid move" {
@@ -31,5 +31,5 @@ test "bomb adjacency is always valid move" {
     board[3][3] = types.Tile.bombWithValue(2);
     board[3][4] = types.Tile.number(2);
 
-    try std.testing.expect(move_scan.hasValidMove(&board));
+    try std.testing.expect(engine.hasValidMove(&board));
 }

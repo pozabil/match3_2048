@@ -4,13 +4,9 @@ const game = @import("match3_2048");
 const types = game.core.types;
 const cfg = game.core.config;
 const utils = game.core.utils;
-const move_scan = game.core.move_scan;
 const match_lines = game.core.match_lines;
 const merge_rules = game.core.merge_rules;
 const bomb_pool_reduce = game.core.bomb_pool_reduce;
-const player_move = game.core.player_move;
-const resolve = game.core.resolve_loop;
-const bomb_explosion = game.core.bomb_explosion;
 const engine = game.core.engine;
 
 fn clear(board: *types.Board) void {
@@ -73,7 +69,7 @@ test "invalid swap rolls back board state" {
     var prng = std.Random.DefaultPrng.init(777);
     try std.testing.expectError(
         error.InvalidMoveNoMatch,
-        player_move.applyPlayerAction(
+        engine.applyPlayerAction(
             &state,
             std.testing.allocator,
             prng.random(),
@@ -101,7 +97,7 @@ test "intersection 3x3 resolves to numeric tile by equal->x2 rule" {
     state.board[4][4] = types.Tile.number(4);
 
     var prng = std.Random.DefaultPrng.init(888);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(!utils.boardHasAnyBomb(&state.board));
     try std.testing.expectEqual(@as(u64, 16), state.score);
@@ -124,7 +120,7 @@ test "intersection 4x4 creates one bomb with nominal cell-pool/2" {
     state.board[4][4] = types.Tile.number(4);
 
     var prng = std.Random.DefaultPrng.init(8899);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(utils.boardHasAnyBomb(&state.board));
     try std.testing.expectEqual(@as(usize, 1), countBombs(&state.board));
@@ -147,7 +143,7 @@ test "connected group over five without intersection does not create bomb" {
     state.board[4][5] = types.Tile.number(2);
 
     var prng = std.Random.DefaultPrng.init(8890);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(!utils.boardHasAnyBomb(&state.board));
     try std.testing.expectEqual(@as(u64, 32), state.score);
@@ -174,7 +170,7 @@ test "mixed wave resolves component bomb and separate line merge" {
     state.board[0][2] = types.Tile.number(4);
 
     var prng = std.Random.DefaultPrng.init(8891);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(boardHasBombWithValue(&state.board, 4));
     try std.testing.expectEqual(@as(u64, 8), state.score);
@@ -205,7 +201,7 @@ test "multiple disconnected components can create multiple bombs" {
     state.board[7][6] = types.Tile.number(4);
 
     var prng = std.Random.DefaultPrng.init(8892);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expect(countBombs(&state.board) >= 2);
     try std.testing.expect(boardHasBombWithValue(&state.board, 4));
@@ -225,7 +221,7 @@ test "one connected 4x4 block creates exactly one bomb" {
     }
 
     var prng = std.Random.DefaultPrng.init(8895);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expectEqual(@as(usize, 1), countBombs(&state.board));
     try std.testing.expect(boardHasBombWithValue(&state.board, 16));
@@ -253,7 +249,7 @@ test "under-threshold intersections resolve to one component outcome" {
     state.board[4][4] = types.Tile.number(2);
 
     var prng = std.Random.DefaultPrng.init(8894);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     // One connected component without bomb-eligible intersection => one numeric outcome via cell-pool.
     // For nine 2-tiles, pool-reduce result is 16.
@@ -278,7 +274,7 @@ test "player wave placement prefers from when to is not in matched line" {
     try std.testing.expect(!game.core.match_lines.hasAnyLineMatch(&state.board));
 
     var prng = std.Random.DefaultPrng.init(8893);
-    try player_move.applyPlayerAction(
+    try engine.applyPlayerAction(
         &state,
         std.testing.allocator,
         prng.random(),
@@ -304,7 +300,7 @@ test "bomb activates via player swap even without line match" {
     state.board[7][5] = types.Tile.number(16);
 
     var prng = std.Random.DefaultPrng.init(889);
-    try player_move.applyPlayerAction(
+    try engine.applyPlayerAction(
         &state,
         std.testing.allocator,
         prng.random(),
@@ -338,7 +334,7 @@ test "bomb explosion computes result from 3x3 pool only" {
     const expected = try bomb_pool_reduce.reducePoolToSingleValue(std.testing.allocator, &pool);
 
     var prng = std.Random.DefaultPrng.init(890);
-    try bomb_explosion.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 4, .col = 4 });
+    try engine.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 4, .col = 4 });
 
     try std.testing.expectEqual(expected, @as(u32, @intCast(state.score)));
 }
@@ -355,7 +351,7 @@ test "cascade loop obeys configured hard cap" {
     }
 
     var prng = std.Random.DefaultPrng.init(891);
-    try resolve.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
+    try engine.resolveCascade(&state, std.testing.allocator, prng.random(), .{ .source = .auto });
 
     try std.testing.expectEqual(@as(u32, 1), state.stats.cascade_waves);
 }
@@ -365,14 +361,14 @@ test "auto-shuffle runs on no-move board when shuffles remain" {
     fillUniqueNoMoveBoard(&state.board);
     state.shuffles_left = 1;
 
-    try std.testing.expect(!move_scan.hasValidMove(&state.board));
+    try std.testing.expect(!engine.hasValidMove(&state.board));
 
     var prng = std.Random.DefaultPrng.init(892);
     try engine.enforcePostMoveState(&state, std.testing.allocator, prng.random());
 
     try std.testing.expectEqual(@as(u8, 0), state.shuffles_left);
     try std.testing.expectEqual(types.GameStatus.running, state.status);
-    try std.testing.expect(move_scan.hasValidMove(&state.board));
+    try std.testing.expect(engine.hasValidMove(&state.board));
 }
 
 test "state becomes lost when no moves and no shuffles left" {
@@ -380,7 +376,7 @@ test "state becomes lost when no moves and no shuffles left" {
     fillUniqueNoMoveBoard(&state.board);
     state.shuffles_left = 0;
 
-    try std.testing.expect(!move_scan.hasValidMove(&state.board));
+    try std.testing.expect(!engine.hasValidMove(&state.board));
 
     var prng = std.Random.DefaultPrng.init(893);
     try engine.enforcePostMoveState(&state, std.testing.allocator, prng.random());
@@ -415,7 +411,7 @@ test "shuffle keeps ready line groups at most three and preserves valid move" {
 
         const groups = try engine.countLineMatchGroups(std.testing.allocator, &state.board);
         try std.testing.expect(groups <= 3);
-        try std.testing.expect(move_scan.hasValidMove(&state.board));
+        try std.testing.expect(engine.hasValidMove(&state.board));
     }
 }
 
@@ -428,7 +424,7 @@ test "bomb-only creation of >=2048 sets won immediately" {
     state.board[4][5] = types.Tile.number(1024);
 
     var prng = std.Random.DefaultPrng.init(9101);
-    try bomb_explosion.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 4, .col = 4 });
+    try engine.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 4, .col = 4 });
 
     try std.testing.expectEqual(types.GameStatus.won, state.status);
     try std.testing.expect(state.max_tile >= 2048);
@@ -450,7 +446,7 @@ test "resolve/apply path is deterministic for same seed and same input" {
     var prng_a = std.Random.DefaultPrng.init(9999);
     var prng_b = std.Random.DefaultPrng.init(9999);
 
-    try player_move.applyPlayerAction(
+    try engine.applyPlayerAction(
         &a,
         std.testing.allocator,
         prng_a.random(),
@@ -458,7 +454,7 @@ test "resolve/apply path is deterministic for same seed and same input" {
         .{ .row = 0, .col = 3 },
     );
 
-    try player_move.applyPlayerAction(
+    try engine.applyPlayerAction(
         &b,
         std.testing.allocator,
         prng_b.random(),

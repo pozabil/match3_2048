@@ -3,7 +3,7 @@ const game = @import("match3_2048");
 
 const types = game.core.types;
 const cfg = game.core.config;
-const bomb_explosion = game.core.bomb_explosion;
+const engine = game.core.engine;
 
 fn clear(board: *types.Board) void {
     for (0..types.BOARD_ROWS) |r| {
@@ -25,7 +25,7 @@ test "bomb activation increments counter once even with neighboring bomb" {
     state.board[6][4] = types.Tile.number(4);
 
     var prng = std.Random.DefaultPrng.init(11);
-    try bomb_explosion.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 7, .col = 3 });
+    try engine.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 7, .col = 3 });
 
     try std.testing.expectEqual(@as(u32, 1), state.stats.bomb_activations);
     try std.testing.expect(state.score > 0);
@@ -49,7 +49,7 @@ test "neighbor bomb is consumed without secondary blast propagation" {
     state.board[5][2] = types.Tile.number(64);
 
     var prng = std.Random.DefaultPrng.init(12);
-    try bomb_explosion.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 7, .col = 3 });
+    try engine.explodeBombAt(&state, std.testing.allocator, prng.random(), .{ .row = 7, .col = 3 });
 
     try std.testing.expectEqual(@as(u32, 1), state.stats.bomb_activations);
     try std.testing.expectEqual(@as(u64, 16), state.score);

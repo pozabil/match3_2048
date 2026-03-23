@@ -66,7 +66,6 @@ pub const GameState = struct {
     shuffle_bonus_1024_awarded: bool,
     stats: Stats,
     status: GameStatus,
-    input_locked: bool,
     next_tile_id: u64,
 
     pub fn init(cfg: config.GameConfig) GameState {
@@ -79,7 +78,6 @@ pub const GameState = struct {
             .shuffle_bonus_1024_awarded = false,
             .stats = .{},
             .status = .running,
-            .input_locked = false,
             .next_tile_id = 1,
         };
     }

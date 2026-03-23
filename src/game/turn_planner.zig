@@ -35,7 +35,7 @@ pub fn planPlayerTurn(
     if (from_tile.kind == .bomb or to_tile.kind == .bomb) {
         const bomb_pos = if ((work.board[to.row][to.col] orelse types.Tile.number(0)).kind == .bomb) to else from;
 
-        var blast_mask = emptyMask();
+        var blast_mask = utils.falseMask();
         markBombArea(&blast_mask, bomb_pos);
         try appendMatchPhase(anim, &work.board, &blast_mask, .{
             .kind = .bomb,
@@ -460,12 +460,3 @@ fn markBombArea(mask: *[types.BOARD_ROWS][types.BOARD_COLS]bool, origin: types.P
     }
 }
 
-fn emptyMask() [types.BOARD_ROWS][types.BOARD_COLS]bool {
-    var out: [types.BOARD_ROWS][types.BOARD_COLS]bool = undefined;
-    for (0..types.BOARD_ROWS) |r| {
-        for (0..types.BOARD_COLS) |c| {
-            out[r][c] = false;
-        }
-    }
-    return out;
-}
