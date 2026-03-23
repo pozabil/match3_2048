@@ -409,7 +409,7 @@ test "shuffle keeps ready line groups at most three and preserves valid move" {
         var prng = std.Random.DefaultPrng.init(@as(u64, @intCast(9100 + i)));
         try engine.shuffleBoard(&state, std.testing.allocator, prng.random());
 
-        const groups = try engine.countLineMatchGroups(std.testing.allocator, &state.board);
+        const groups = engine.countLineMatchGroups(&state.board);
         try std.testing.expect(groups <= 3);
         try std.testing.expect(engine.hasValidMove(&state.board));
     }

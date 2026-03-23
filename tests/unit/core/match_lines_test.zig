@@ -34,8 +34,7 @@ test "normal matches are only linear, not L-shape groups" {
 
     try std.testing.expect(!match_lines.hasAnyLineMatch(&board));
 
-    var matches = try match_lines.findLineMatches(std.testing.allocator, &board);
-    defer matches.deinit(std.testing.allocator);
+    const matches = match_lines.findLineMatches(&board);
 
-    try std.testing.expectEqual(@as(usize, 0), matches.items.len);
+    try std.testing.expectEqual(@as(usize, 0), matches.len);
 }

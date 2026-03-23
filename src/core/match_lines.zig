@@ -1,9 +1,15 @@
-const std = @import("std");
 const types = @import("types.zig");
 
 pub const LineMatch = struct {
     value: u32,
     positions: [types.BOARD_ROWS]types.Position,
+    len: usize,
+};
+
+pub const MAX_LINE_MATCHES: usize = 32;
+
+pub const LineMatchResult = struct {
+    items: [MAX_LINE_MATCHES]LineMatch,
     len: usize,
 };
 
@@ -48,9 +54,8 @@ pub fn hasAnyLineMatch(board: *const types.Board) bool {
     return false;
 }
 
-pub fn findLineMatches(allocator: std.mem.Allocator, board: *const types.Board) !std.ArrayList(LineMatch) {
-    var matches = std.ArrayList(LineMatch).empty;
-    errdefer matches.deinit(allocator);
+pub fn findLineMatches(board: *const types.Board) LineMatchResult {
+    var result = LineMatchResult{ .items = undefined, .len = 0 };
 
     // Horizontal
     for (0..types.BOARD_ROWS) |r| {
@@ -69,7 +74,8 @@ pub fn findLineMatches(allocator: std.mem.Allocator, board: *const types.Board) 
                 for (c..end, 0..) |cc, i| {
                     m.positions[i] = .{ .row = r, .col = cc };
                 }
-                try matches.append(allocator, m);
+                result.items[result.len] = m;
+                result.len += 1;
             }
             c = end;
         }
@@ -92,11 +98,12 @@ pub fn findLineMatches(allocator: std.mem.Allocator, board: *const types.Board) 
                 for (r..end, 0..) |rr, i| {
                     m.positions[i] = .{ .row = rr, .col = c };
                 }
-                try matches.append(allocator, m);
+                result.items[result.len] = m;
+                result.len += 1;
             }
             r = end;
         }
     }
 
-    return matches;
+    return result;
 }

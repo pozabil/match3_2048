@@ -215,15 +215,15 @@ pub fn shuffleBoard(state: *types.GameState, allocator: std.mem.Allocator, rng: 
             last_candidate = state.board;
 
             if (!hasValidMove(&state.board)) continue;
-            const groups = try countLineMatchGroups(allocator, &state.board);
+            const groups = countLineMatchGroups(&state.board);
             if (groups <= budget.max_groups) return;
         }
     }
 
     state.board = last_candidate;
-    try reduceReadyGroupsAfterShuffle(state, allocator);
+    reduceReadyGroupsAfterShuffle(state);
 
-    const groups_after = try countLineMatchGroups(allocator, &state.board);
+    const groups_after = countLineMatchGroups(&state.board);
     if (groups_after > SHUFFLE_FALLBACK_LIMIT or !hasValidMove(&state.board)) {
         forceOneValidMovePattern(state);
     }
@@ -250,15 +250,14 @@ fn placeItemsOnBoard(state: *types.GameState, items: []const types.Tile) void {
     }
 }
 
-fn reduceReadyGroupsAfterShuffle(state: *types.GameState, allocator: std.mem.Allocator) !void {
+fn reduceReadyGroupsAfterShuffle(state: *types.GameState) void {
     var guard: usize = 0;
     while (guard < MAX_SHUFFLE_REDUCE_PASSES) : (guard += 1) {
-        var lines = try match_lines.findLineMatches(allocator, &state.board);
-        defer lines.deinit(allocator);
+        const lines = match_lines.findLineMatches(&state.board);
 
-        if (lines.items.len <= SHUFFLE_FALLBACK_LIMIT) return;
+        if (lines.len <= SHUFFLE_FALLBACK_LIMIT) return;
 
-        const pick = selectLowestNominalGroup(lines.items);
+        const pick = selectLowestNominalGroup(lines.items[0..lines.len]);
         const p = lineAnchorPosition(lines.items[pick]);
         const cell = state.board[p.row][p.col] orelse continue;
         if (cell.kind != .number) continue;
@@ -302,10 +301,8 @@ fn stepDownNominal(value: u32) u32 {
     return value / 2;
 }
 
-pub fn countLineMatchGroups(allocator: std.mem.Allocator, board: *const types.Board) !usize {
-    var lines = try match_lines.findLineMatches(allocator, board);
-    defer lines.deinit(allocator);
-    return lines.items.len;
+pub fn countLineMatchGroups(board: *const types.Board) usize {
+    return match_lines.findLineMatches(board).len;
 }
 
 fn forceOneValidMovePattern(state: *types.GameState) void {
@@ -540,21 +537,20 @@ pub fn resolveOneWave(
     var step = WaveStep.init(state.board);
     errdefer step.deinit(allocator);
 
-    var lines = try match_lines.findLineMatches(allocator, &state.board);
-    defer lines.deinit(allocator);
-    if (lines.items.len == 0) {
+    const lines = match_lines.findLineMatches(&state.board);
+    if (lines.len == 0) {
         return step;
     }
 
     step.had_match = true;
     state.stats.cascade_waves += 1;
-    for (lines.items) |m| {
+    for (lines.items[0..lines.len]) |m| {
         if (m.len > step.max_line_len) step.max_line_len = m.len;
     }
-    try step.outcomes.ensureTotalCapacity(allocator, lines.items.len);
+    try step.outcomes.ensureTotalCapacity(allocator, lines.len);
 
     var matched = utils.falseMask();
-    for (lines.items) |m| {
+    for (lines.items[0..lines.len]) |m| {
         for (0..m.len) |i| {
             const p = m.positions[i];
             matched[p.row][p.col] = true;
@@ -571,7 +567,7 @@ pub fn resolveOneWave(
         }
     }
 
-    for (lines.items, 0..) |m, line_idx| {
+    for (lines.items[0..lines.len], 0..) |m, line_idx| {
         const orientation = lineOrientation(m);
         for (0..m.len) |i| {
             const p = m.positions[i];
@@ -613,7 +609,7 @@ pub fn resolveOneWave(
                 component.cells[component.len] = p;
                 component.len += 1;
 
-                if (isBombIntersectionAt(p.row, p.col, &horizontal_line_idx, &vertical_line_idx, lines.items)) {
+                if (isBombIntersectionAt(p.row, p.col, &horizontal_line_idx, &vertical_line_idx, lines.items[0..lines.len])) {
                     // BFS visits each cell exactly once, so p is always unique here
                     component.intersections[component.intersection_count] = p;
                     component.intersection_count += 1;
