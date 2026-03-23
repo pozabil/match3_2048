@@ -257,6 +257,58 @@ test "under-threshold intersections resolve to one component outcome" {
     try std.testing.expectEqual(@as(u64, 16), state.score);
 }
 
+test "horizontal swap both-merge: L-shape at from, vertical at to" {
+    // Board (row 7 = bottom):
+    //   col:  1    2    3    4
+    // row 5: [  ] [  ] [ 4] [ 2]
+    // row 6: [  ] [  ] [ 4] [ 2]
+    // row 7: [ 4] [ 4] [ 2] [ 4]   <- swap (7,3)<->(7,4)
+    //
+    // After swap: (7,3)=4, (7,4)=2
+    //   col 3 vertical: (5,3),(6,3),(7,3) = 4,4,4  -> match
+    //   row 7 left:     (7,1),(7,2),(7,3) = 4,4,4  -> match (L-shape corner at (7,3))
+    //   col 4 vertical: (5,4),(6,4),(7,4) = 2,2,2  -> match
+    //
+    // Expected outcomes:
+    //   L-shape at (7,3): 5 cells of value 4 -> pool=cellPoolValue(4,5)=16, placed at player_from=(7,3)
+    //   Vertical at (7,4): 3 cells of value 2 -> mergedValue(2,3)=4,  placed at player_to=(7,4)
+    var custom_cfg = cfg.defaultConfig();
+    custom_cfg.max_cascade_waves = 1;
+    var state = types.GameState.init(custom_cfg);
+    clear(&state.board);
+
+    state.board[5][3] = types.Tile.number(4);
+    state.board[6][3] = types.Tile.number(4);
+    state.board[7][1] = types.Tile.number(4);
+    state.board[7][2] = types.Tile.number(4);
+    state.board[5][4] = types.Tile.number(2);
+    state.board[6][4] = types.Tile.number(2);
+
+    state.board[7][3] = types.Tile.number(2); // from
+    state.board[7][4] = types.Tile.number(4); // to
+
+    try std.testing.expect(!match_lines.hasAnyLineMatch(&state.board));
+
+    var prng = std.Random.DefaultPrng.init(42);
+    try engine.applyPlayerAction(
+        &state,
+        std.testing.allocator,
+        prng.random(),
+        .{ .row = 7, .col = 3 },
+        .{ .row = 7, .col = 4 },
+    );
+
+    // Tiles at bottom row stay there after gravity.
+    const at_from = state.board[7][3];
+    const at_to = state.board[7][4];
+    try std.testing.expect(at_from != null);
+    try std.testing.expect(at_to != null);
+    // L-shape (5 cells of 4) -> 16 at player_from=(7,3), NOT at player_to=(7,4)
+    try std.testing.expectEqual(@as(u32, 16), at_from.?.value);
+    // Vertical (3 cells of 2) -> 4 at player_to=(7,4), NOT at player_from=(7,3)
+    try std.testing.expectEqual(@as(u32, 4), at_to.?.value);
+}
+
 test "player wave placement prefers from when to is not in matched line" {
     var custom_cfg = cfg.defaultConfig();
     custom_cfg.max_cascade_waves = 1;

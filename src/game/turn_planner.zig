@@ -347,11 +347,23 @@ fn findSourcePosition(
     dst_tile: types.Tile,
     used_sources: *[types.BOARD_ROWS][types.BOARD_COLS]bool,
 ) ?types.Position {
+    // First pass: exact tile identity (same ID).
     for (0..types.BOARD_ROWS) |r| {
         for (0..types.BOARD_COLS) |c| {
             if (used_sources[r][c]) continue;
             const src_tile = before[r][c] orelse continue;
             if (!sameTile(src_tile, dst_tile)) continue;
+            used_sources[r][c] = true;
+            return .{ .row = r, .col = c };
+        }
+    }
+    // Second pass: value fallback for tiles replaced by the shuffle fallback path
+    // (forceOneValidMovePattern issues new IDs, so exact match fails above).
+    for (0..types.BOARD_ROWS) |r| {
+        for (0..types.BOARD_COLS) |c| {
+            if (used_sources[r][c]) continue;
+            const src_tile = before[r][c] orelse continue;
+            if (src_tile.kind != dst_tile.kind or src_tile.value != dst_tile.value) continue;
             used_sources[r][c] = true;
             return .{ .row = r, .col = c };
         }
