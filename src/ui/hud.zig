@@ -47,5 +47,29 @@ pub fn drawHUD(state: *const types.GameState, elapsed_seconds: f64) void {
         ) catch "timer";
     rl.drawText(timer_text, 760, 54, 22, ink);
 
-    rl.drawText("Mouse: click+click or drag    R: restart    S: shuffle", 46, 70, 20, ink);
+    rl.drawText("Mouse: click+click or drag    S: shuffle", 46, 70, 20, ink);
+
+    // Menu button (top-right corner)
+    const btn = menuButtonRect();
+    const mouse = rl.getMousePosition();
+    const hover = mouseInMenuButton(mouse.x, mouse.y);
+    const btn_color = if (hover)
+        rl.Color.init(143, 122, 102, 255)
+    else
+        rl.Color.init(161, 136, 127, 255);
+    rl.drawRectangleRec(btn, btn_color);
+    rl.drawText("Menu", @as(i32, @intFromFloat(btn.x)) + 24, @as(i32, @intFromFloat(btn.y)) + 14, 24, rl.Color.init(249, 246, 242, 255));
+}
+
+pub fn hitTestMenuButton(mouse_x: f32, mouse_y: f32) bool {
+    return mouseInMenuButton(mouse_x, mouse_y);
+}
+
+fn menuButtonRect() rl.Rectangle {
+    return .{ .x = 472, .y = 26, .width = 108, .height = 48 };
+}
+
+fn mouseInMenuButton(x: f32, y: f32) bool {
+    const btn = menuButtonRect();
+    return x >= btn.x and x <= btn.x + btn.width and y >= btn.y and y <= btn.y + btn.height;
 }

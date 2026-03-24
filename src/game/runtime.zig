@@ -8,7 +8,11 @@ const turn_planner = @import("turn_planner.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const animations = @import("../ui/animations.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
+const menu_ui = @import("../ui/menu.zig");
+const hud = @import("../ui/hud.zig");
 const audio_synth = @import("../audio/synth.zig");
+const save_data = @import("../persistence/save_data.zig");
+const storage = @import("../persistence/storage.zig");
 const MAX_PHASE_AUDIO_STEP: f32 = 0.05;
 const IS_WEB = builtin.target.os.tag == .emscripten;
 
@@ -31,6 +35,9 @@ pub const Runtime = struct {
     touch_last_pos: rl.Vector2 = .{ .x = 0.0, .y = 0.0 },
     suppress_mouse_until: f64 = 0.0,
     elapsed_seconds: f64 = 0.0,
+    best_record: ?save_data.RecordJson = null,
+    menu_open: bool = false,
+    save_dirty: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) Runtime {
         return initWithAudioOptions(allocator, seed, .{});
@@ -49,6 +56,8 @@ pub const Runtime = struct {
         engine.initializeBoard(&runtime.state, runtime.prng.random());
         runtime.anim.reset();
         runtime.synth.init(seed ^ 0x9E3779B97F4A7C15, audio_options);
+        // Attempt to restore persisted state. Errors are silently ignored.
+        runtime.loadFromStorage();
         runtime.syncPhaseCursor();
         runtime.last_status_seen = runtime.state.status;
         return runtime;
@@ -90,6 +99,7 @@ pub const Runtime = struct {
         self.anim.reset();
         self.syncPhaseCursor();
         self.last_status_seen = self.state.status;
+        self.save_dirty = true; // Persist the new fresh board on web.
     }
 
     pub fn tick(self: *Runtime) void {
@@ -105,14 +115,47 @@ pub const Runtime = struct {
             self.pending_state = null;
             self.score_phase_cursor = 0;
             self.anim.triggerMove();
+            self.save_dirty = true; // Board state changed — autosave on web.
         }
 
-        if (!self.confirm_open and !self.anim.isPresenting() and rl.isKeyPressed(.r)) {
-            self.confirm_action = .restart;
-            self.confirm_open = true;
-            self.selected = null;
-            self.drag_start = null;
-            return;
+        // Web autosave: flush to localStorage when dirty.
+        if (IS_WEB and self.save_dirty) {
+            self.saveToStorage();
+            self.save_dirty = false;
+        }
+
+        // Menu button or Escape toggles the menu (when not mid-animation or confirming).
+        if (!self.confirm_open) {
+            // Touch: consume tap-release on HUD menu button before gameplay handles it.
+            const touch_count = rl.getTouchPointCount();
+            const touch_down = touch_count > 0;
+            if (touch_down) {
+                self.touch_last_pos = self.logicalTouchPosition(0);
+            }
+            if (!touch_down and self.touch_down_prev and
+                hud.hitTestMenuButton(self.touch_last_pos.x, self.touch_last_pos.y))
+            {
+                self.touch_down_prev = false;
+                self.suppress_mouse_until = rl.getTime() + 0.25;
+                self.menu_open = !self.menu_open;
+                self.selected = null;
+                self.drag_start = null;
+                return;
+            }
+            // Mouse: suppress for 0.25 s after touch events to avoid ghost clicks.
+            const menu_clicked = rl.getTime() >= self.suppress_mouse_until and
+                rl.isMouseButtonPressed(.left) and
+                hud.hitTestMenuButton(self.logicalMousePosition().x, self.logicalMousePosition().y);
+            if (menu_clicked or (rl.isKeyPressed(.escape) and self.menu_open)) {
+                self.menu_open = !self.menu_open;
+                self.selected = null;
+                self.drag_start = null;
+                return; // Consume the input — don't let it reach gameplay.
+            }
+            if (self.menu_open) {
+                self.handleMenuInput();
+                return;
+            }
         }
 
         if (!self.confirm_open and !self.anim.isPresenting() and self.state.status == .running and rl.isKeyPressed(.s)) {
@@ -208,6 +251,52 @@ pub const Runtime = struct {
         return out;
     }
 
+    fn handleMenuInput(self: *Runtime) void {
+        // Touch input — mirrors handleConfirmInput touch pattern.
+        const touch_count = rl.getTouchPointCount();
+        const touch_down = touch_count > 0;
+        if (touch_down) {
+            self.touch_last_pos = self.logicalTouchPosition(0);
+        }
+        if (!touch_down and self.touch_down_prev) {
+            self.touch_down_prev = false;
+            self.suppress_mouse_until = rl.getTime() + 0.25;
+            if (menu_ui.hitTestClose(self.touch_last_pos.x, self.touch_last_pos.y)) {
+                self.menu_open = false;
+                return;
+            }
+            if (menu_ui.hitTestNewGame(self.touch_last_pos.x, self.touch_last_pos.y)) {
+                self.menu_open = false;
+                self.confirm_action = .restart;
+                self.confirm_open = true;
+                self.selected = null;
+                self.drag_start = null;
+            }
+            return;
+        } else {
+            self.touch_down_prev = touch_down;
+        }
+
+        if (rl.getTime() < self.suppress_mouse_until) return;
+
+        // Mouse input.
+        if (!rl.isMouseButtonPressed(.left)) return;
+        const mouse = self.logicalMousePosition();
+
+        if (menu_ui.hitTestClose(mouse.x, mouse.y)) {
+            self.menu_open = false;
+            return;
+        }
+
+        if (menu_ui.hitTestNewGame(mouse.x, mouse.y)) {
+            self.menu_open = false;
+            self.confirm_action = .restart;
+            self.confirm_open = true;
+            self.selected = null;
+            self.drag_start = null;
+        }
+    }
+
     fn handleConfirmInput(self: *Runtime) void {
         if (rl.isKeyPressed(.enter)) {
             self.applyConfirmedAction();
@@ -293,6 +382,7 @@ pub const Runtime = struct {
             self.score_phase_cursor = 0;
             self.anim.triggerMove();
         }
+        self.save_dirty = true; // Shuffles_left changed — autosave on web.
     }
 
     fn tryAction(self: *Runtime, from: types.Position, to: types.Position) void {
@@ -393,6 +483,15 @@ pub const Runtime = struct {
             .running => {},
         }
 
+        // Update best record when the game ends.
+        if (self.state.status == .won or self.state.status == .lost) {
+            const new_record = save_data.gameStateToRecord(&self.state, self.elapsed_seconds);
+            if (save_data.isBetterRecord(new_record, self.best_record)) {
+                self.best_record = new_record;
+            }
+            self.save_dirty = true;
+        }
+
         self.last_status_seen = self.state.status;
     }
 
@@ -446,6 +545,41 @@ pub const Runtime = struct {
 
         self.touch_down_prev = touch_down;
         return touch_down;
+    }
+
+    /// Serialize current game state + best record and persist to storage.
+    /// Errors are silently ignored (best-effort).
+    pub fn saveToStorage(self: *Runtime) void {
+        var save_buf: [65536]u8 = undefined;
+        var fba = std.heap.FixedBufferAllocator.init(&save_buf);
+        const save_file = save_data.SaveFile{
+            .record = self.best_record,
+            .autosave = save_data.serializeToAutosave(
+                &self.state,
+                self.elapsed_seconds,
+                self.prng.s,
+            ),
+        };
+        const json = save_data.writeToJson(fba.allocator(), save_file) catch return;
+        storage.save(self.allocator, json) catch {};
+    }
+
+    /// Load persisted state from storage. Silently ignores all errors.
+    fn loadFromStorage(self: *Runtime) void {
+        const raw = storage.load(self.allocator) catch return;
+        defer self.allocator.free(raw);
+
+        const parsed = save_data.readFromJson(self.allocator, raw) catch return;
+        defer parsed.deinit();
+
+        // RecordJson and AutosaveJson contain only value types — safe to copy.
+        self.best_record = parsed.value.record;
+
+        if (parsed.value.autosave) |auto| {
+            var prng_s: [4]u64 = undefined;
+            save_data.deserializeAutosave(auto, &self.state, &self.elapsed_seconds, &prng_s);
+            self.prng.s = prng_s;
+        }
     }
 
     fn handlePointerRelease(self: *Runtime, end: ?types.Position) void {

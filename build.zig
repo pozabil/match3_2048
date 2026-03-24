@@ -73,6 +73,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
         wasm.root_module.linkLibrary(raylib_artifact);
+        wasm.addCSourceFile(.{ .file = b.path("src/platform/web_storage.c"), .flags = &.{} });
 
         const install_dir: std.Build.InstallDir = .{ .custom = "web" };
         const emcc_fsanitize = switch (optimize) {
@@ -127,6 +128,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
         wasm_release.root_module.linkLibrary(raylib_artifact);
+        wasm_release.addCSourceFile(.{ .file = b.path("src/platform/web_storage.c"), .flags = &.{} });
         wasm_release.root_module.addIncludePath(emsdk_dep.path("upstream/emscripten/cache/sysroot/include"));
 
         const release_install_dir: std.Build.InstallDir = .{ .custom = "web-release" };

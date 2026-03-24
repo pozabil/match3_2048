@@ -1,3 +1,4 @@
+const _save_data = @import("persistence/save_data_test.zig");
 const _merge_rules = @import("core/merge_rules_test.zig");
 const _bomb_pool_reduce = @import("core/bomb_pool_reduce_test.zig");
 const _move_scan = @import("core/move_scan_test.zig");
