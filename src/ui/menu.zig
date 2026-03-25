@@ -21,7 +21,7 @@ pub fn draw(open: bool, record: ?save_data.RecordJson) void {
     rl.drawRectangleLinesEx(panel, 2.0, panel_border);
 
     // Title
-    rl.drawText("MENU", @as(i32, @intFromFloat(panel.x)) + 28, @as(i32, @intFromFloat(panel.y)) + 22, 36, ink);
+    rl.drawText("MENU", @as(i32, @intFromFloat(panel.x)) + 28, @as(i32, @intFromFloat(panel.y)) + 20, 36, ink);
 
     // Close [X] button
     const close_hover = pointInRect(mouse.x, mouse.y, close_btn);
@@ -30,7 +30,7 @@ pub fn draw(open: bool, record: ?save_data.RecordJson) void {
     else
         rl.Color.init(187, 173, 160, 255);
     rl.drawRectangleRec(close_btn, close_color);
-    rl.drawText("[X]", @as(i32, @intFromFloat(close_btn.x)) + 8, @as(i32, @intFromFloat(close_btn.y)) + 8, 20, rl.Color.init(249, 246, 242, 255));
+    rl.drawText("[X]", @as(i32, @intFromFloat(close_btn.x)) + 28, @as(i32, @intFromFloat(close_btn.y)) + 14, 20, rl.Color.init(249, 246, 242, 255));
 
     // Divider
     rl.drawLineEx(
@@ -130,10 +130,10 @@ fn newGameButtonRect(panel: rl.Rectangle) rl.Rectangle {
 
 fn closeButtonRect(panel: rl.Rectangle) rl.Rectangle {
     return .{
-        .x = panel.x + panel.width - 52,
-        .y = panel.y + 16,
-        .width = 40,
-        .height = 34,
+        .x = panel.x + panel.width - 108,
+        .y = panel.y + 15,
+        .width = 80,
+        .height = 44,
     };
 }
 

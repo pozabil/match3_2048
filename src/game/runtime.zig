@@ -132,21 +132,18 @@ pub const Runtime = struct {
             if (touch_down) {
                 self.touch_last_pos = self.logicalTouchPosition(0);
             }
-            if (!touch_down and self.touch_down_prev and
+            if (!self.menu_open and !touch_down and self.touch_down_prev and
                 hud.hitTestMenuButton(self.touch_last_pos.x, self.touch_last_pos.y))
             {
                 self.touch_down_prev = false;
-                self.suppress_mouse_until = rl.getTime() + 0.25;
-                self.menu_open = !self.menu_open;
+                self.menu_open = true;
                 self.selected = null;
                 self.drag_start = null;
                 return;
             }
-            // Mouse: suppress for 0.25 s after touch events to avoid ghost clicks.
-            const menu_clicked = rl.getTime() >= self.suppress_mouse_until and
-                rl.isMouseButtonPressed(.left) and
+            const menu_clicked = rl.isMouseButtonPressed(.left) and
                 hud.hitTestMenuButton(self.logicalMousePosition().x, self.logicalMousePosition().y);
-            if (menu_clicked or (rl.isKeyPressed(.escape) and self.menu_open)) {
+            if (menu_clicked or rl.isKeyPressed(.escape)) {
                 self.menu_open = !self.menu_open;
                 self.selected = null;
                 self.drag_start = null;
