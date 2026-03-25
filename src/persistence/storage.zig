@@ -70,10 +70,14 @@ fn saveDesktop(allocator: std.mem.Allocator, data: []const u8) !void {
     // Write to a temp file then rename — atomic on POSIX, near-atomic on Windows.
     // A crash before rename leaves save.json.tmp (harmless, cleaned on next save).
     const tmp_name = SAVE_FILE ++ ".tmp";
-    const tmp = try dir.createFile(tmp_name, .{});
-    try tmp.writeAll(data);
-    tmp.close();
+    var tmp = try dir.createFile(tmp_name, .{});
+    try writeAllAndClose(&tmp, data);
     try dir.rename(tmp_name, SAVE_FILE);
+}
+
+fn writeAllAndClose(file: *std.fs.File, data: []const u8) !void {
+    defer file.close();
+    try file.writeAll(data);
 }
 
 // ── Web ───────────────────────────────────────────────────────────────────────
@@ -95,4 +99,20 @@ fn loadWeb(allocator: std.mem.Allocator) ![]u8 {
 
 fn saveWeb(data: []const u8) void {
     web_storage_save(data.ptr, @intCast(data.len));
+}
+
+test "writeAllAndClose closes handle when write fails" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    {
+        var seed = try tmp.dir.createFile("readonly.bin", .{});
+        defer seed.close();
+        try seed.writeAll("seed");
+    }
+
+    var file = try tmp.dir.openFile("readonly.bin", .{});
+    _ = writeAllAndClose(&file, "x") catch {};
+
+    try std.testing.expectError(error.BadFileDescriptor, file.stat());
 }
