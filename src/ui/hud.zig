@@ -1,6 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
 const types = @import("../core/types.zig");
+const ui_util = @import("ui_util.zig");
 
 pub const ElapsedClock = struct {
     hours: u64,
@@ -70,6 +71,5 @@ fn menuButtonRect() rl.Rectangle {
 }
 
 fn mouseInMenuButton(x: f32, y: f32) bool {
-    const btn = menuButtonRect();
-    return x >= btn.x and x <= btn.x + btn.width and y >= btn.y and y <= btn.y + btn.height;
+    return ui_util.pointInRect(x, y, menuButtonRect());
 }

@@ -2,6 +2,9 @@ const std = @import("std");
 const rl = @import("raylib");
 const hud = @import("hud.zig");
 const save_data = @import("../persistence/save_data.zig");
+const ui_util = @import("ui_util.zig");
+
+pub const Choice = enum { new_game, close };
 
 pub fn draw(open: bool, record: ?save_data.RecordJson) void {
     if (!open) return;
@@ -74,7 +77,7 @@ pub fn draw(open: bool, record: ?save_data.RecordJson) void {
             .lost => "Lost",
             .running => "In Progress",
         };
-        rl.drawText(status_str, px + 320, ry + 46, 24, ink);
+        rl.drawText(status_str, px + 320, y, 24, ink);
 
         const max = std.fmt.bufPrintZ(&buf, "Max tile: {d}", .{rec.max_tile}) catch "max";
         rl.drawText(max, px, y, 24, ink);
@@ -103,12 +106,11 @@ pub fn draw(open: bool, record: ?save_data.RecordJson) void {
     }
 }
 
-pub fn hitTestNewGame(mouse_x: f32, mouse_y: f32) bool {
-    return pointInRect(mouse_x, mouse_y, newGameButtonRect(panelRect()));
-}
-
-pub fn hitTestClose(mouse_x: f32, mouse_y: f32) bool {
-    return pointInRect(mouse_x, mouse_y, closeButtonRect(panelRect()));
+pub fn hitTest(mouse_x: f32, mouse_y: f32) ?Choice {
+    const panel = panelRect();
+    if (ui_util.pointInRect(mouse_x, mouse_y, closeButtonRect(panel))) return .close;
+    if (ui_util.pointInRect(mouse_x, mouse_y, newGameButtonRect(panel))) return .new_game;
+    return null;
 }
 
 fn panelRect() rl.Rectangle {
@@ -137,6 +139,4 @@ fn closeButtonRect(panel: rl.Rectangle) rl.Rectangle {
     };
 }
 
-fn pointInRect(x: f32, y: f32, rect: rl.Rectangle) bool {
-    return x >= rect.x and x <= rect.x + rect.width and y >= rect.y and y <= rect.y + rect.height;
-}
+const pointInRect = ui_util.pointInRect;

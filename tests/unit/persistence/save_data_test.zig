@@ -100,6 +100,51 @@ test "isBetterRecord: new beats old by score" {
     try std.testing.expect(save_data.isBetterRecord(worse, null)); // null → always better
 }
 
+test "validateAutosave: valid data passes" {
+    var state = types.GameState.init(config.defaultConfig());
+    state.next_tile_id = 1;
+    const auto = save_data.serializeToAutosave(&state, 10.0, .{ 1, 2, 3, 4 });
+    try std.testing.expect(save_data.validateAutosave(auto));
+}
+
+test "validateAutosave: NaN elapsed_seconds rejected" {
+    var state = types.GameState.init(config.defaultConfig());
+    state.next_tile_id = 1;
+    var auto = save_data.serializeToAutosave(&state, 0.0, .{ 1, 2, 3, 4 });
+    auto.elapsed_seconds = std.math.nan(f64);
+    try std.testing.expect(!save_data.validateAutosave(auto));
+}
+
+test "validateAutosave: negative elapsed_seconds rejected" {
+    var state = types.GameState.init(config.defaultConfig());
+    state.next_tile_id = 1;
+    var auto = save_data.serializeToAutosave(&state, 0.0, .{ 1, 2, 3, 4 });
+    auto.elapsed_seconds = -1.0;
+    try std.testing.expect(!save_data.validateAutosave(auto));
+}
+
+test "validateAutosave: all-zero prng_state rejected" {
+    var state = types.GameState.init(config.defaultConfig());
+    state.next_tile_id = 1;
+    const auto = save_data.serializeToAutosave(&state, 0.0, .{ 0, 0, 0, 0 });
+    try std.testing.expect(!save_data.validateAutosave(auto));
+}
+
+test "validateAutosave: next_tile_id 0 rejected" {
+    var state = types.GameState.init(config.defaultConfig());
+    state.next_tile_id = 0;
+    const auto = save_data.serializeToAutosave(&state, 0.0, .{ 1, 2, 3, 4 });
+    try std.testing.expect(!save_data.validateAutosave(auto));
+}
+
+test "validateAutosave: tile with value 0 rejected" {
+    var state = types.GameState.init(config.defaultConfig());
+    state.next_tile_id = 1;
+    var auto = save_data.serializeToAutosave(&state, 0.0, .{ 1, 2, 3, 4 });
+    auto.board[0] = save_data.TileJson{ .kind = .number, .value = 0, .id = 1 };
+    try std.testing.expect(!save_data.validateAutosave(auto));
+}
+
 test "forward compatibility: unknown JSON fields are ignored" {
     const json =
         \\{"record":null,"autosave":null,"future_field":"ignored","another":42}

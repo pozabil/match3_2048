@@ -116,6 +116,30 @@ pub fn deserializeAutosave(
     prng_s.* = json.prng_state;
 }
 
+// ── Validation ────────────────────────────────────────────────────────────────
+
+/// Returns true when the autosave is semantically valid and safe to apply.
+/// Rejects NaN/Inf timers, degenerate PRNG state, zero tile IDs, and zero tile values.
+pub fn validateAutosave(auto: AutosaveJson) bool {
+    if (!std.math.isFinite(auto.elapsed_seconds) or auto.elapsed_seconds < 0.0) return false;
+    if (auto.next_tile_id == 0) return false;
+    // All-zero xoshiro256 state is degenerate — produces a constant sequence.
+    var all_zero = true;
+    for (auto.prng_state) |w| {
+        if (w != 0) {
+            all_zero = false;
+            break;
+        }
+    }
+    if (all_zero) return false;
+    for (auto.board) |cell| {
+        if (cell) |t| {
+            if (t.value == 0) return false;
+        }
+    }
+    return true;
+}
+
 // ── Comparison ────────────────────────────────────────────────────────────────
 
 /// Returns true when `new` is a better result than `old` (or old is absent).

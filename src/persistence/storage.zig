@@ -4,7 +4,8 @@ const builtin = @import("builtin");
 const IS_WEB = builtin.target.os.tag == .emscripten;
 const APP_DIR = "match3_2048";
 const SAVE_FILE = "save.json";
-const WEB_BUF_SIZE = 65536; // 64 KB — well above any realistic save size
+pub const SAVE_BUF_SIZE: usize = 65536; // 64 KB — well above any realistic save size
+const WEB_BUF_SIZE = SAVE_BUF_SIZE;
 
 extern fn web_storage_save(data: [*]const u8, len: c_int) void;
 extern fn web_storage_load(buf: [*]u8, buf_len: c_int) c_int;
@@ -20,6 +21,7 @@ pub fn load(allocator: std.mem.Allocator) ![]u8 {
 }
 
 /// Write raw save bytes. Does not take ownership of data.
+/// allocator is unused on web (JS handles storage); required on desktop for dir path.
 pub fn save(allocator: std.mem.Allocator, data: []const u8) !void {
     if (IS_WEB) {
         saveWeb(data);
@@ -65,10 +67,13 @@ fn saveDesktop(allocator: std.mem.Allocator, data: []const u8) !void {
     var dir = try std.fs.openDirAbsolute(dir_path, .{});
     defer dir.close();
 
-    const file = try dir.createFile(SAVE_FILE, .{});
-    defer file.close();
-
-    try file.writeAll(data);
+    // Write to a temp file then rename — atomic on POSIX, near-atomic on Windows.
+    // A crash before rename leaves save.json.tmp (harmless, cleaned on next save).
+    const tmp_name = SAVE_FILE ++ ".tmp";
+    const tmp = try dir.createFile(tmp_name, .{});
+    try tmp.writeAll(data);
+    tmp.close();
+    try dir.rename(tmp_name, SAVE_FILE);
 }
 
 // ── Web ───────────────────────────────────────────────────────────────────────

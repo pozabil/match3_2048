@@ -22,6 +22,7 @@ pub const ui = struct {
     pub const animations = @import("ui/animations.zig");
     pub const restart_confirm = @import("ui/restart_confirm.zig");
     pub const menu = @import("ui/menu.zig");
+    pub const ui_util = @import("ui/ui_util.zig");
 };
 
 pub const audio = struct {
@@ -30,4 +31,5 @@ pub const audio = struct {
 
 pub const persistence = struct {
     pub const save_data = @import("persistence/save_data.zig");
+    // storage is intentionally internal — use save_data for serialization
 };

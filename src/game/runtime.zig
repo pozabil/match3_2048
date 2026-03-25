@@ -38,6 +38,7 @@ pub const Runtime = struct {
     best_record: ?save_data.RecordJson = null,
     menu_open: bool = false,
     save_dirty: bool = false,
+    save_countdown: u2 = 0,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) Runtime {
         return initWithAudioOptions(allocator, seed, .{});
@@ -118,10 +119,14 @@ pub const Runtime = struct {
             self.save_dirty = true; // Board state changed — autosave on web.
         }
 
-        // Web autosave: flush to localStorage when dirty.
-        if (IS_WEB and self.save_dirty) {
-            self.saveToStorage();
+        // Autosave: defer write by 2 frames so the save never lands on a busy frame.
+        if (self.save_dirty) {
             self.save_dirty = false;
+            self.save_countdown = 2;
+        }
+        if (self.save_countdown > 0) {
+            self.save_countdown -= 1;
+            if (self.save_countdown == 0) self.saveToStorage();
         }
 
         // Menu button or Escape toggles the menu (when not mid-animation or confirming).
@@ -258,17 +263,7 @@ pub const Runtime = struct {
         if (!touch_down and self.touch_down_prev) {
             self.touch_down_prev = false;
             self.suppress_mouse_until = rl.getTime() + 0.25;
-            if (menu_ui.hitTestClose(self.touch_last_pos.x, self.touch_last_pos.y)) {
-                self.menu_open = false;
-                return;
-            }
-            if (menu_ui.hitTestNewGame(self.touch_last_pos.x, self.touch_last_pos.y)) {
-                self.menu_open = false;
-                self.confirm_action = .restart;
-                self.confirm_open = true;
-                self.selected = null;
-                self.drag_start = null;
-            }
+            self.applyMenuChoice(menu_ui.hitTest(self.touch_last_pos.x, self.touch_last_pos.y));
             return;
         } else {
             self.touch_down_prev = touch_down;
@@ -279,18 +274,19 @@ pub const Runtime = struct {
         // Mouse input.
         if (!rl.isMouseButtonPressed(.left)) return;
         const mouse = self.logicalMousePosition();
+        self.applyMenuChoice(menu_ui.hitTest(mouse.x, mouse.y));
+    }
 
-        if (menu_ui.hitTestClose(mouse.x, mouse.y)) {
-            self.menu_open = false;
-            return;
-        }
-
-        if (menu_ui.hitTestNewGame(mouse.x, mouse.y)) {
-            self.menu_open = false;
-            self.confirm_action = .restart;
-            self.confirm_open = true;
-            self.selected = null;
-            self.drag_start = null;
+    fn applyMenuChoice(self: *Runtime, choice: ?menu_ui.Choice) void {
+        switch (choice orelse return) {
+            .close => self.menu_open = false,
+            .new_game => {
+                self.menu_open = false;
+                self.confirm_action = .restart;
+                self.confirm_open = true;
+                self.selected = null;
+                self.drag_start = null;
+            },
         }
     }
 
@@ -371,14 +367,7 @@ pub const Runtime = struct {
 
         self.selected = null;
         self.drag_start = null;
-        self.score_phase_cursor = 0;
-        self.pending_state = planned;
-        if (!self.anim.isPresenting()) {
-            self.state = planned;
-            self.pending_state = null;
-            self.score_phase_cursor = 0;
-            self.anim.triggerMove();
-        }
+        self.commitPendingState(planned);
         self.save_dirty = true; // Shuffles_left changed — autosave on web.
     }
 
@@ -398,6 +387,10 @@ pub const Runtime = struct {
             return;
         };
 
+        self.commitPendingState(planned);
+    }
+
+    fn commitPendingState(self: *Runtime, planned: types.GameState) void {
         self.score_phase_cursor = 0;
         self.pending_state = planned;
         if (!self.anim.isPresenting()) {
@@ -426,6 +419,7 @@ pub const Runtime = struct {
 
     fn syncAudioSignals(self: *Runtime) void {
         self.emitPhaseBoundaryAudio();
+        self.onGameEnded(); // must run before emitStatusAudio advances last_status_seen
         self.emitStatusAudio();
     }
 
@@ -473,23 +467,22 @@ pub const Runtime = struct {
 
     fn emitStatusAudio(self: *Runtime) void {
         if (self.state.status == self.last_status_seen) return;
-
         switch (self.state.status) {
             .won => self.synth.trigger(.{ .kind = .win }),
             .lost => self.synth.trigger(.{ .kind = .lose }),
             .running => {},
         }
-
-        // Update best record when the game ends.
-        if (self.state.status == .won or self.state.status == .lost) {
-            const new_record = save_data.gameStateToRecord(&self.state, self.elapsed_seconds);
-            if (save_data.isBetterRecord(new_record, self.best_record)) {
-                self.best_record = new_record;
-            }
-            self.save_dirty = true;
-        }
-
         self.last_status_seen = self.state.status;
+    }
+
+    fn onGameEnded(self: *Runtime) void {
+        if (self.state.status == self.last_status_seen) return;
+        if (self.state.status != .won and self.state.status != .lost) return;
+        const new_record = save_data.gameStateToRecord(&self.state, self.elapsed_seconds);
+        if (save_data.isBetterRecord(new_record, self.best_record)) {
+            self.best_record = new_record;
+        }
+        self.save_dirty = true;
     }
 
     fn playPhaseAudioEvent(self: *Runtime, event: animations.AudioEvent) void {
@@ -547,7 +540,7 @@ pub const Runtime = struct {
     /// Serialize current game state + best record and persist to storage.
     /// Errors are silently ignored (best-effort).
     pub fn saveToStorage(self: *Runtime) void {
-        var save_buf: [65536]u8 = undefined;
+        var save_buf: [storage.SAVE_BUF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&save_buf);
         const save_file = save_data.SaveFile{
             .record = self.best_record,
@@ -573,6 +566,7 @@ pub const Runtime = struct {
         self.best_record = parsed.value.record;
 
         if (parsed.value.autosave) |auto| {
+            if (!save_data.validateAutosave(auto)) return;
             var prng_s: [4]u64 = undefined;
             save_data.deserializeAutosave(auto, &self.state, &self.elapsed_seconds, &prng_s);
             self.prng.s = prng_s;

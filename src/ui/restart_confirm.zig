@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const ui_util = @import("ui_util.zig");
 
 pub const Choice = enum {
     yes,
@@ -84,6 +85,4 @@ fn noButtonRect(panel: rl.Rectangle) rl.Rectangle {
     };
 }
 
-fn pointInRect(x: f32, y: f32, rect: rl.Rectangle) bool {
-    return x >= rect.x and x <= rect.x + rect.width and y >= rect.y and y <= rect.y + rect.height;
-}
+const pointInRect = ui_util.pointInRect;
