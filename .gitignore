@@ -3,6 +3,11 @@
 zig-out/
 *.o
 
-examples/
+.claude/
+docs/
+todos/
+
+compound-engineering.local.md
+TASK.md
 
 .DS_Store
