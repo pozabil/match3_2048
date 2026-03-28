@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const rl = @import("raylib");
 const types = @import("../core/types.zig");
 const config = @import("../core/config.zig");
@@ -8,13 +7,14 @@ const turn_planner = @import("turn_planner.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const animations = @import("../ui/animations.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
+const overlay = @import("../ui/overlay.zig");
 const menu_ui = @import("../ui/menu.zig");
 const hud = @import("../ui/hud.zig");
+const ui_util = @import("../ui/ui_util.zig");
 const audio_synth = @import("../audio/synth.zig");
 const save_data = @import("../persistence/save_data.zig");
 const storage = @import("../persistence/storage.zig");
 const MAX_PHASE_AUDIO_STEP: f32 = 0.05;
-const IS_WEB = builtin.target.os.tag == .emscripten;
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
@@ -85,6 +85,16 @@ pub const Runtime = struct {
         self.tryAction(from, to);
     }
 
+    pub fn debugHandleEndOverlayMouseClick(self: *Runtime, logical_pos: rl.Vector2) void {
+        if (self.state.status == .running) return;
+        self.applyEndOverlayNewGameAt(logical_pos);
+    }
+
+    pub fn debugHandleEndOverlayTouch(self: *Runtime, touch_down: bool, logical_pos: rl.Vector2, now: f64) bool {
+        if (self.state.status == .running) return false;
+        return self.processEndOverlayTouchInput(touch_down, logical_pos, now);
+    }
+
     pub fn reset(self: *Runtime) void {
         self.state = types.GameState.init(config.defaultConfig());
         self.selected = null;
@@ -129,7 +139,7 @@ pub const Runtime = struct {
             if (self.save_countdown == 0) self.saveToStorage();
         }
 
-        // Menu button or Escape toggles the menu (when not mid-animation or confirming).
+        // Menu button opens the menu; Escape toggles it (when not confirming).
         if (!self.confirm_open) {
             // Touch: consume tap-release on HUD menu button before gameplay handles it.
             const touch_count = rl.getTouchPointCount();
@@ -146,7 +156,7 @@ pub const Runtime = struct {
                 self.drag_start = null;
                 return;
             }
-            const menu_clicked = rl.isMouseButtonPressed(.left) and
+            const menu_clicked = !self.menu_open and rl.isMouseButtonPressed(.left) and
                 hud.hitTestMenuButton(self.logicalMousePosition().x, self.logicalMousePosition().y);
             if (menu_clicked or rl.isKeyPressed(.escape)) {
                 self.menu_open = !self.menu_open;
@@ -179,6 +189,7 @@ pub const Runtime = struct {
         }
 
         if (self.state.status != .running) {
+            self.handleEndOverlayInput();
             return;
         }
 
@@ -215,12 +226,12 @@ pub const Runtime = struct {
 
     fn logicalMousePosition(self: *const Runtime) rl.Vector2 {
         _ = self;
-        return scaleToLogical(rl.getMousePosition());
+        return ui_util.logicalPointerPosition(rl.getMousePosition());
     }
 
     fn logicalTouchPosition(self: *const Runtime, index: i32) rl.Vector2 {
         _ = self;
-        return scaleToLogical(rl.getTouchPosition(index));
+        return ui_util.logicalPointerPosition(rl.getTouchPosition(index));
     }
 
     fn adjacentBySwipeDirection(start: types.Position, finish: types.Position) ?types.Position {
@@ -275,6 +286,39 @@ pub const Runtime = struct {
         if (!rl.isMouseButtonPressed(.left)) return;
         const mouse = self.logicalMousePosition();
         self.applyMenuChoice(menu_ui.hitTest(mouse.x, mouse.y));
+    }
+
+    fn handleEndOverlayInput(self: *Runtime) void {
+        const touch_count = rl.getTouchPointCount();
+        const touch_down = touch_count > 0;
+        const touch_pos = if (touch_down) self.logicalTouchPosition(0) else self.touch_last_pos;
+        const now = rl.getTime();
+        if (self.processEndOverlayTouchInput(touch_down, touch_pos, now)) return;
+
+        if (now < self.suppress_mouse_until) return;
+
+        if (rl.isMouseButtonPressed(.left)) {
+            self.applyEndOverlayNewGameAt(self.logicalMousePosition());
+        }
+    }
+
+    fn processEndOverlayTouchInput(self: *Runtime, touch_down: bool, touch_pos: rl.Vector2, now: f64) bool {
+        if (touch_down) {
+            self.touch_last_pos = touch_pos;
+        }
+        if (!touch_down and self.touch_down_prev) {
+            self.applyEndOverlayNewGameAt(self.touch_last_pos);
+            self.touch_down_prev = false;
+            self.suppress_mouse_until = now + 0.25;
+            return true;
+        }
+
+        self.touch_down_prev = touch_down;
+        return false;
+    }
+
+    fn applyEndOverlayNewGameAt(self: *Runtime, logical_pos: rl.Vector2) void {
+        if (overlay.hitTestNewGameButton(logical_pos.x, logical_pos.y)) self.reset();
     }
 
     fn applyMenuChoice(self: *Runtime, choice: ?menu_ui.Choice) void {
@@ -599,15 +643,3 @@ pub const Runtime = struct {
         }
     }
 };
-
-fn scaleToLogical(raw: rl.Vector2) rl.Vector2 {
-    if (!IS_WEB) return raw;
-    const screen_w = @as(f32, @floatFromInt(@max(rl.getScreenWidth(), 1)));
-    const screen_h = @as(f32, @floatFromInt(@max(rl.getScreenHeight(), 1)));
-    const render_w = @as(f32, @floatFromInt(@max(rl.getRenderWidth(), 1)));
-    const render_h = @as(f32, @floatFromInt(@max(rl.getRenderHeight(), 1)));
-    return .{
-        .x = raw.x * (screen_w / render_w),
-        .y = raw.y * (screen_h / render_h),
-    };
-}
