@@ -18,14 +18,22 @@ pub const Page = enum(u8) {
 
 pub const PAGE_COUNT: u8 = 5;
 
+var anim_anchor_open: bool = false;
+var anim_anchor_page: u8 = 0;
+var anim_anchor_time: f64 = 0.0;
+
 pub fn clampPage(page: u8) u8 {
     return if (page < PAGE_COUNT) page else PAGE_COUNT - 1;
 }
 
 pub fn draw(open: bool, page_index: u8) void {
-    if (!open) return;
+    if (!open) {
+        updateAnimationAnchor(false, 0);
+        return;
+    }
 
     const clamped_page = clampPage(page_index);
+    updateAnimationAnchor(true, clamped_page);
     const page = @as(Page, @enumFromInt(clamped_page));
     const panel = panelRect();
     const back_btn = backButtonRect();
@@ -67,6 +75,25 @@ pub fn draw(open: bool, page_index: u8) void {
         24,
         ink,
     );
+}
+
+fn updateAnimationAnchor(open: bool, page: u8) void {
+    if (!open) {
+        anim_anchor_open = false;
+        return;
+    }
+
+    if (!anim_anchor_open or anim_anchor_page != page) {
+        anim_anchor_open = true;
+        anim_anchor_page = page;
+        anim_anchor_time = rl.getTime();
+    }
+}
+
+fn pageLoopTime(period_s: f64) f64 {
+    if (period_s <= 0.0001) return 0.0;
+    const elapsed = @max(0.0, rl.getTime() - anim_anchor_time);
+    return @mod(elapsed, period_s);
 }
 
 pub fn hitTest(mouse_x: f32, mouse_y: f32, page_index: u8) ?Action {
@@ -148,10 +175,8 @@ fn drawPageText(page: Page, x: i32, y: i32, max_width: i32, color: rl.Color) voi
             _ = drawGuideWrapped("H - How to Play", x, cursor, 24, max_width, lh, color);
         },
         .line_merge => {
-            cursor += drawGuideWrapped("A straight line of 3+ equal tiles merges", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("into one stronger result tile.", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("Longer lines usually produce bigger results.", x, cursor, 24, max_width, lh, color);
-            _ = drawGuideWrapped("Cascades can continue automatically.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("A straight line of 3+ equal tiles merges into one stronger result tile. When lines with the same value intersect, they merge as one shared group.", x, cursor, 24, max_width, lh, color);
+            _ = drawGuideWrapped("Longer lines usually produce bigger results, and cascades can continue automatically.", x, cursor, 24, max_width, lh, color);
         },
         .bombs => {
             cursor += drawGuideWrapped("A bomb appears when an intersection has", x, cursor, 24, max_width, lh, color);
@@ -215,7 +240,7 @@ fn drawControlsIllustration(box: rl.Rectangle) void {
     const br = miniGridTilePos(scene_x, top_y, 1, 2, tile_size, gap);
 
     const loop_period: f64 = 3.0;
-    const t = @as(f32, @floatCast(@mod(rl.getTime(), loop_period)));
+    const t = @as(f32, @floatCast(pageLoopTime(loop_period)));
     const swap_start: f32 = 0.20;
     const swap_dur: f32 = 0.46;
     const swap_end = swap_start + swap_dur;
@@ -301,7 +326,7 @@ fn drawControlsIllustration(box: rl.Rectangle) void {
     const invalid_active_period: f64 = 1.45;
     const invalid_pause_period: f64 = 1.55;
     const invalid_loop_period = invalid_active_period + invalid_pause_period;
-    const invalid_loop_t = @mod(rl.getTime(), invalid_loop_period);
+    const invalid_loop_t = pageLoopTime(invalid_loop_period);
     const invalid_active = invalid_loop_t < invalid_active_period;
     const invalid_phase = if (invalid_active)
         @as(f32, @floatCast(invalid_loop_t / invalid_active_period))
@@ -342,12 +367,355 @@ fn drawControlsIllustration(box: rl.Rectangle) void {
 }
 
 fn drawLineMergeIllustration(box: rl.Rectangle) void {
-    drawMiniTile(box.x + 20.0, box.y + 90.0, 52.0, 2, rl.Color.init(238, 228, 218, 255), rl.Color.init(119, 110, 101, 255));
-    drawMiniTile(box.x + 82.0, box.y + 90.0, 52.0, 2, rl.Color.init(238, 228, 218, 255), rl.Color.init(119, 110, 101, 255));
-    drawMiniTile(box.x + 144.0, box.y + 90.0, 52.0, 2, rl.Color.init(238, 228, 218, 255), rl.Color.init(119, 110, 101, 255));
-    rl.drawText("=>", @as(i32, @intFromFloat(box.x)) + 204, @as(i32, @intFromFloat(box.y)) + 106, 28, rl.Color.init(119, 110, 101, 255));
-    drawMiniTile(box.x + 238.0, box.y + 90.0, 52.0, 4, rl.Color.init(237, 224, 200, 255), rl.Color.init(119, 110, 101, 255));
-    rl.drawText("2-2-2 => 4", @as(i32, @intFromFloat(box.x)) + 82, @as(i32, @intFromFloat(box.y)) + 176, 24, rl.Color.init(119, 110, 101, 255));
+    const tile_size: f32 = 28.0;
+    const gap: f32 = 5.0;
+    const board_w = tile_size * 4.0 + gap * 5.0;
+    const board_h = board_w;
+    const board_x = box.x + (box.width - board_w) / 2.0;
+    const board_y = box.y + (box.height - board_h) / 2.0;
+
+    const initial = [_]u32{
+        8,  4, 8, 2,
+        2,  4, 8, 2,
+        16, 2, 4, 4,
+        2,  4, 2, 2,
+    };
+    const after_swap = [_]u32{
+        8,  4, 8, 2,
+        2,  4, 8, 2,
+        16, 4, 4, 4,
+        2,  2, 2, 2,
+    };
+    const after_wave1_clear = [_]u32{
+        8,  0, 8,  2,
+        2,  0, 8,  2,
+        16, 0, 16, 0,
+        0,  0, 8,  0,
+    };
+    const after_fall1 = [_]u32{
+        4,  4, 8,  2,
+        8,  4, 8,  4,
+        2,  4, 16, 2,
+        16, 4, 8,  2,
+    };
+    const after_wave2_clear = [_]u32{
+        4,  0,  8,  2,
+        8,  0,  8,  4,
+        2,  16, 16, 2,
+        16, 0,  8,  2,
+    };
+    const after_fall2 = [_]u32{
+        4,  8,  8,  2,
+        8,  8,  8,  4,
+        2,  8,  16, 2,
+        16, 16, 8,  2,
+    };
+    const after_wave3_clear = [_]u32{
+        4,  0,  8,  2,
+        0,  16, 0,  4,
+        2,  0,  16, 2,
+        16, 16, 8,  2,
+    };
+    const after_fall3 = [_]u32{
+        2,  4,  4,  2,
+        4,  8,  8,  4,
+        2,  16, 16, 2,
+        16, 16, 8,  2,
+    };
+
+    const wave1_mask = [_]bool{
+        false, true, false, false,
+        false, true, false, false,
+        false, true, true,  true,
+        true,  true, true,  true,
+    };
+    const wave2_mask = [_]bool{
+        false, true, false, false,
+        false, true, false, false,
+        false, true, false, false,
+        false, true, false, false,
+    };
+    const wave3_mask = [_]bool{
+        false, true,  false, false,
+        true,  true,  true,  false,
+        false, true,  false, false,
+        false, false, false, false,
+    };
+
+    const wave1_outcomes = [_]MiniOutcome{
+        .{ .row = 2, .col = 2, .value = 16 },
+        .{ .row = 3, .col = 2, .value = 8 },
+    };
+    const wave2_outcomes = [_]MiniOutcome{
+        .{ .row = 2, .col = 1, .value = 16 },
+    };
+    const wave3_outcomes = [_]MiniOutcome{
+        .{ .row = 1, .col = 1, .value = 16 },
+    };
+
+    const time_scale: f32 = 2.0;
+
+    var phases: [12]MiniPhase = undefined;
+    var phase_count: usize = 0;
+
+    var swap_phase = initMiniPhase(.swap, 0.17 * time_scale, initial, "Swap");
+    swap_phase.hide[idx4(2, 1)] = true;
+    swap_phase.hide[idx4(3, 1)] = true;
+    miniPhaseAddTrack(&swap_phase, initial[idx4(2, 1)], 2.0, 1.0, 3.0, 1.0);
+    miniPhaseAddTrack(&swap_phase, initial[idx4(3, 1)], 3.0, 1.0, 2.0, 1.0);
+    pushMiniPhase(phases[0..], &phase_count, swap_phase);
+
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_swap, &wave1_mask, 0.13 * time_scale, "Wave 1: match"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_swap, &wave1_mask, wave1_outcomes[0..], 0.13 * time_scale, "Wave 1: merge"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave1_clear, &after_fall1, 0.22 * time_scale, "Wave 1: fall"));
+
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall1, &wave2_mask, 0.13 * time_scale, "Wave 2: match"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall1, &wave2_mask, wave2_outcomes[0..], 0.13 * time_scale, "Wave 2: merge"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave2_clear, &after_fall2, 0.22 * time_scale, "Wave 2: fall"));
+
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall2, &wave3_mask, 0.13 * time_scale, "Wave 3: match"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall2, &wave3_mask, wave3_outcomes[0..], 0.13 * time_scale, "Wave 3: merge"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave3_clear, &after_fall3, 0.22 * time_scale, "Wave 3: fall"));
+    pushMiniPhase(phases[0..], &phase_count, initMiniPhase(.fall_spawn, 1.05 * time_scale, after_fall3, "Result + pause"));
+
+    var period: f32 = 0.0;
+    for (phases[0..phase_count]) |ph| {
+        period += ph.duration;
+    }
+    const t = @as(f32, @floatCast(pageLoopTime(@as(f64, @floatCast(period)))));
+
+    var active_idx: usize = phase_count - 1;
+    var phase_start: f32 = 0.0;
+    var cursor: f32 = 0.0;
+    for (phases[0..phase_count], 0..) |ph, i| {
+        const phase_end = cursor + ph.duration;
+        if (t < phase_end) {
+            active_idx = i;
+            phase_start = cursor;
+            break;
+        }
+        cursor = phase_end;
+    }
+
+    const active = phases[active_idx];
+    const progress = if (active.duration > 0.0001)
+        std.math.clamp((t - phase_start) / active.duration, 0.0, 1.0)
+    else
+        1.0;
+    drawMiniPhase(board_x, board_y, tile_size, gap, &active, progress);
+}
+
+const MiniPhaseKind = enum {
+    swap,
+    match_flash,
+    fall_spawn,
+};
+
+const MiniTrack = struct {
+    value: u32,
+    from_row: f32,
+    from_col: f32,
+    to_row: f32,
+    to_col: f32,
+};
+
+const MiniOutcome = struct {
+    row: usize,
+    col: usize,
+    value: u32,
+};
+
+const MiniPhase = struct {
+    kind: MiniPhaseKind,
+    duration: f32,
+    base: [16]u32,
+    hide: [16]bool,
+    tracks: [16]MiniTrack,
+    track_count: usize,
+    label: [:0]const u8,
+};
+
+fn initMiniPhase(kind: MiniPhaseKind, duration: f32, base: [16]u32, label: [:0]const u8) MiniPhase {
+    return .{
+        .kind = kind,
+        .duration = duration,
+        .base = base,
+        .hide = [_]bool{false} ** 16,
+        .tracks = undefined,
+        .track_count = 0,
+        .label = label,
+    };
+}
+
+fn pushMiniPhase(phases: []MiniPhase, phase_count: *usize, phase: MiniPhase) void {
+    if (phase_count.* >= phases.len) return;
+    phases[phase_count.*] = phase;
+    phase_count.* += 1;
+}
+
+fn miniPhaseAddTrack(phase: *MiniPhase, value: u32, from_row: f32, from_col: f32, to_row: f32, to_col: f32) void {
+    if (phase.track_count >= phase.tracks.len) return;
+    phase.tracks[phase.track_count] = .{
+        .value = value,
+        .from_row = from_row,
+        .from_col = from_col,
+        .to_row = to_row,
+        .to_col = to_col,
+    };
+    phase.track_count += 1;
+}
+
+fn buildMiniMatchPhase(base: *const [16]u32, mask: *const [16]bool, duration: f32, label: [:0]const u8) MiniPhase {
+    var phase = initMiniPhase(.match_flash, duration, base.*, label);
+    for (0..4) |r| {
+        for (0..4) |c| {
+            const idx = idx4(r, c);
+            if (!mask[idx]) continue;
+            const value = base[idx];
+            if (value == 0) continue;
+            phase.hide[idx] = true;
+            miniPhaseAddTrack(
+                &phase,
+                value,
+                @as(f32, @floatFromInt(r)),
+                @as(f32, @floatFromInt(c)),
+                @as(f32, @floatFromInt(r)),
+                @as(f32, @floatFromInt(c)),
+            );
+        }
+    }
+    return phase;
+}
+
+fn buildMiniResolvePhase(
+    base: *const [16]u32,
+    matched_mask: *const [16]bool,
+    outcomes: []const MiniOutcome,
+    duration: f32,
+    label: [:0]const u8,
+) MiniPhase {
+    var phase = initMiniPhase(.fall_spawn, duration, base.*, label);
+    for (0..16) |i| {
+        if (matched_mask[i]) phase.hide[i] = true;
+    }
+    for (outcomes) |o| {
+        const idx = idx4(o.row, o.col);
+        phase.hide[idx] = true;
+        miniPhaseAddTrack(
+            &phase,
+            o.value,
+            @as(f32, @floatFromInt(o.row)),
+            @as(f32, @floatFromInt(o.col)),
+            @as(f32, @floatFromInt(o.row)),
+            @as(f32, @floatFromInt(o.col)),
+        );
+    }
+    return phase;
+}
+
+fn buildMiniFallPhase(before: *const [16]u32, after: *const [16]u32, duration: f32, label: [:0]const u8) MiniPhase {
+    var phase = initMiniPhase(.fall_spawn, duration, after.*, label);
+    for (0..4) |col| {
+        var used_src = [_]bool{false} ** 4;
+
+        var rr: isize = 3;
+        while (rr >= 0) : (rr -= 1) {
+            const row: usize = @intCast(rr);
+            const dst_value = after[idx4(row, col)];
+            if (dst_value == 0) continue;
+
+            if (findMiniSourceRow(before, col, row, dst_value, &used_src)) |src_row| {
+                used_src[src_row] = true;
+                if (src_row != row) {
+                    phase.hide[idx4(row, col)] = true;
+                    miniPhaseAddTrack(
+                        &phase,
+                        dst_value,
+                        @as(f32, @floatFromInt(src_row)),
+                        @as(f32, @floatFromInt(col)),
+                        @as(f32, @floatFromInt(row)),
+                        @as(f32, @floatFromInt(col)),
+                    );
+                }
+            } else {
+                phase.hide[idx4(row, col)] = true;
+                miniPhaseAddTrack(
+                    &phase,
+                    dst_value,
+                    -1.2,
+                    @as(f32, @floatFromInt(col)),
+                    @as(f32, @floatFromInt(row)),
+                    @as(f32, @floatFromInt(col)),
+                );
+            }
+        }
+    }
+    return phase;
+}
+
+fn findMiniSourceRow(before: *const [16]u32, col: usize, dst_row: usize, dst_value: u32, used_src: *[4]bool) ?usize {
+    var rr: isize = 3;
+    while (rr >= 0) : (rr -= 1) {
+        const row: usize = @intCast(rr);
+        if (used_src[row]) continue;
+        if (before[idx4(row, col)] != dst_value) continue;
+        if (row <= dst_row) return row;
+    }
+    return null;
+}
+
+fn drawMiniPhase(board_x: f32, board_y: f32, tile_size: f32, gap: f32, phase: *const MiniPhase, progress_01: f32) void {
+    drawMiniBoard4x4StateHidden(board_x, board_y, tile_size, gap, &phase.base, &phase.hide);
+    const progress = easeInOut01(progress_01);
+
+    for (0..phase.track_count) |i| {
+        const track = phase.tracks[i];
+        var row = lerpF32(track.from_row, track.to_row, progress);
+        var col = lerpF32(track.from_col, track.to_col, progress);
+        var scale: f32 = 1.0;
+        var alpha: f32 = 1.0;
+
+        switch (phase.kind) {
+            .swap => {
+                scale = 1.0 + 0.05 * (1.0 - progress);
+            },
+            .match_flash => {
+                row = track.to_row;
+                col = track.to_col;
+                scale = 1.0 + 0.22 * (1.0 - progress);
+                alpha = 1.0 - progress;
+            },
+            .fall_spawn => {},
+        }
+
+        drawMiniTrackTile(board_x, board_y, tile_size, gap, row, col, scale, alpha, track.value);
+    }
+}
+
+fn drawMiniTrackTile(
+    board_x: f32,
+    board_y: f32,
+    tile_size: f32,
+    gap: f32,
+    row: f32,
+    col: f32,
+    scale: f32,
+    alpha: f32,
+    value: u32,
+) void {
+    const step = tile_size + gap;
+    const x = board_x + gap + col * step;
+    const y = board_y + gap + row * step;
+    drawMiniTileScaledAlpha(
+        x,
+        y,
+        tile_size,
+        scale,
+        alpha,
+        value,
+        miniTileColor(value),
+        miniTileTextColor(value),
+    );
 }
 
 fn drawBombIllustration(box: rl.Rectangle) void {
@@ -641,6 +1009,65 @@ fn drawSmallBoard4x4(x: f32, y: f32, tile_size: f32, gap: f32, values: *const [1
             drawMiniTile(tx, ty, tile_size, v, miniTileColor(v), miniTileTextColor(v));
         }
     }
+}
+
+fn drawMiniBoard4x4State(x: f32, y: f32, tile_size: f32, gap: f32, values: *const [16]u32) void {
+    var hide = [_]bool{false} ** 16;
+    drawMiniBoard4x4StateHidden(x, y, tile_size, gap, values, &hide);
+}
+
+fn drawMiniBoard4x4StateHidden(
+    x: f32,
+    y: f32,
+    tile_size: f32,
+    gap: f32,
+    values: *const [16]u32,
+    hide: *const [16]bool,
+) void {
+    drawMiniBoardBackdrop(x, y, 4, 4, tile_size, gap);
+    for (0..4) |r| {
+        for (0..4) |c| {
+            const idx = idx4(r, c);
+            if (hide[idx]) continue;
+            const v = values[idx];
+            if (v == 0) continue;
+            const p = miniGridTilePos(x, y, c, r, tile_size, gap);
+            drawMiniTile(p.x, p.y, tile_size, v, miniTileColor(v), miniTileTextColor(v));
+        }
+    }
+}
+
+fn drawWaveFlashRow(
+    x: f32,
+    y: f32,
+    tile_size: f32,
+    gap: f32,
+    row: usize,
+    col_start: usize,
+    count: usize,
+    value: u32,
+    progress: f32,
+) void {
+    const scale = 1.0 + 0.22 * (1.0 - progress);
+    const alpha = 1.0 - progress;
+    for (0..count) |i| {
+        const col = col_start + i;
+        const p = miniGridTilePos(x, y, col, row, tile_size, gap);
+        drawMiniTileScaledAlpha(
+            p.x,
+            p.y,
+            tile_size,
+            scale,
+            alpha,
+            value,
+            miniTileColor(value),
+            miniTileTextColor(value),
+        );
+    }
+}
+
+fn idx4(row: usize, col: usize) usize {
+    return row * 4 + col;
 }
 
 fn miniTileColor(value: u32) rl.Color {
