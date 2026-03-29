@@ -46,8 +46,11 @@ pub fn draw(open: bool, page_index: u8) void {
     drawActionButton(back_btn, "Back", true, ui_util.pointInRect(mouse.x, mouse.y, back_btn));
 
     const title_x = @as(i32, @intFromFloat(panel.x)) + 354;
-    rl.drawText(pageTitle(page), title_x, @as(i32, @intFromFloat(panel.y)) + 88, 32, ink);
-    drawPageText(page, title_x, @as(i32, @intFromFloat(panel.y)) + 134, ink);
+    const title_y = @as(i32, @intFromFloat(panel.y)) + 96;
+    const text_right = @as(i32, @intFromFloat(panel.x + panel.width)) - 30;
+    const text_max_width = text_right - title_x;
+    rl.drawText(pageTitle(page), title_x, title_y, 32, ink);
+    drawPageText(page, title_x, @as(i32, @intFromFloat(panel.y)) + 134, text_max_width, ink);
     drawPageIllustration(page, panel);
 
     const prev_enabled = clamped_page > 0;
@@ -132,41 +135,43 @@ fn pageTitle(page: Page) [:0]const u8 {
     };
 }
 
-fn drawPageText(page: Page, x: i32, y: i32, color: rl.Color) void {
+fn drawPageText(page: Page, x: i32, y: i32, max_width: i32, color: rl.Color) void {
     const lh: i32 = 34;
+    var cursor = y;
     switch (page) {
         .controls => {
-            rl.drawText("Swap neighbors by drag or click+click.", x, y, 24, color);
-            rl.drawText("Hotkeys:", x, y + lh, 24, color);
-            rl.drawText("R - New Game", x, y + lh * 2, 24, color);
-            rl.drawText("S - Shuffle", x, y + lh * 3, 24, color);
-            rl.drawText("H - How to Play", x, y + lh * 4, 24, color);
+            cursor += drawGuideWrapped("Swap neighbors by drag or click+click.", x, cursor, 24, max_width, lh, color);
+            cursor += lh; // empty line before hotkeys
+            cursor += drawGuideWrapped("Hotkeys:", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("R - New Game", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("S - Shuffle", x, cursor, 24, max_width, lh, color);
+            _ = drawGuideWrapped("H - How to Play", x, cursor, 24, max_width, lh, color);
         },
         .line_merge => {
-            rl.drawText("A straight line of 3+ equal tiles merges", x, y, 24, color);
-            rl.drawText("into one stronger result tile.", x, y + lh, 24, color);
-            rl.drawText("Longer lines usually produce bigger results.", x, y + lh * 2, 24, color);
-            rl.drawText("Cascades can continue automatically.", x, y + lh * 3, 24, color);
+            cursor += drawGuideWrapped("A straight line of 3+ equal tiles merges", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("into one stronger result tile.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("Longer lines usually produce bigger results.", x, cursor, 24, max_width, lh, color);
+            _ = drawGuideWrapped("Cascades can continue automatically.", x, cursor, 24, max_width, lh, color);
         },
         .bombs => {
-            rl.drawText("A bomb appears when an intersection has", x, y, 24, color);
-            rl.drawText("both horizontal 4+ and vertical 4+ lines.", x, y + lh, 24, color);
-            rl.drawText("Swap with a bomb to explode a 3x3 area.", x, y + lh * 2, 24, color);
-            rl.drawText("That 3x3 value pool reduces to one tile.", x, y + lh * 3, 24, color);
-            rl.drawText("Score increases by that resulting value.", x, y + lh * 4, 24, color);
+            cursor += drawGuideWrapped("A bomb appears when an intersection has", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("both horizontal 4+ and vertical 4+ lines.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("Swap with a bomb to explode a 3x3 area.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("That 3x3 value pool reduces to one tile.", x, cursor, 24, max_width, lh, color);
+            _ = drawGuideWrapped("Score increases by that resulting value.", x, cursor, 24, max_width, lh, color);
         },
         .shuffle => {
-            rl.drawText("Manual Shuffle costs 1 shuffle.", x, y, 24, color);
-            rl.drawText("If no moves remain, auto-shuffle", x, y + lh, 24, color);
-            rl.drawText("runs if any shuffles are left.", x, y + lh * 2, 24, color);
-            rl.drawText("If moves are gone and shuffles are 0,", x, y + lh * 3, 24, color);
-            rl.drawText("the run ends.", x, y + lh * 4, 24, color);
+            cursor += drawGuideWrapped("Manual Shuffle costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("If no moves remain, auto-shuffle", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("runs if any shuffles are left.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("If moves are gone and shuffles are 0,", x, cursor, 24, max_width, lh, color);
+            _ = drawGuideWrapped("the run ends.", x, cursor, 24, max_width, lh, color);
         },
         .scoring => {
-            rl.drawText("Each merged result tile adds score by", x, y, 24, color);
-            rl.drawText("its resulting value.", x, y + lh, 24, color);
-            rl.drawText("Cascade waves keep adding extra points.", x, y + lh * 2, 24, color);
-            rl.drawText("Reach 2048+ to win.", x, y + lh * 3, 24, color);
+            cursor += drawGuideWrapped("Each merged result tile adds score by", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("its resulting value.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("Cascade waves keep adding extra points.", x, cursor, 24, max_width, lh, color);
+            _ = drawGuideWrapped("Reach 2048+ to win.", x, cursor, 24, max_width, lh, color);
         },
     }
 }
@@ -174,7 +179,7 @@ fn drawPageText(page: Page, x: i32, y: i32, color: rl.Color) void {
 fn drawPageIllustration(page: Page, panel: rl.Rectangle) void {
     const box = rl.Rectangle{
         .x = panel.x + 30.0,
-        .y = panel.y + 104.0,
+        .y = panel.y + 100.0,
         .width = 300.0,
         .height = 400.0,
     };
@@ -192,24 +197,148 @@ fn drawPageIllustration(page: Page, panel: rl.Rectangle) void {
 
 fn drawControlsIllustration(box: rl.Rectangle) void {
     const ink = rl.Color.init(119, 110, 101, 255);
-    const tile_size: f32 = 68.0;
-    const gap: f32 = 54.0;
-    const cx = box.x + box.width / 2.0;
-    const cy = box.y + box.height / 2.0 - 20.0;
-    const left_x = cx - gap / 2.0 - tile_size;
-    const right_x = cx + gap / 2.0;
-    const top_y = cy - tile_size / 2.0;
+    const tile_size: f32 = 28.0;
+    const gap: f32 = 5.0;
+    const step = tile_size + gap;
+    const board_w = tile_size * 2.0 + gap * 3.0;
+    const board_h = tile_size * 3.0 + gap * 4.0;
+    const scene_x = box.x + (box.width - board_w) / 2.0;
 
-    drawMiniTile(left_x, top_y, tile_size, 2, rl.Color.init(238, 228, 218, 255), ink);
-    drawMiniTile(right_x, top_y, tile_size, 4, rl.Color.init(237, 224, 200, 255), ink);
-    drawBidirectionalArrow(
-        left_x + tile_size + 12.0,
-        cy,
-        right_x - 12.0,
-        cy,
-        rl.Color.init(142, 128, 112, 255),
+    // Animation 1: valid cycle (swap -> merge -> pause)
+    const top_y = box.y + 48.0;
+    drawMiniBoardBackdrop(scene_x, top_y, 2, 3, tile_size, gap);
+    const tl = miniGridTilePos(scene_x, top_y, 0, 0, tile_size, gap);
+    const tr = miniGridTilePos(scene_x, top_y, 1, 0, tile_size, gap);
+    const cl = miniGridTilePos(scene_x, top_y, 0, 1, tile_size, gap);
+    const cr = miniGridTilePos(scene_x, top_y, 1, 1, tile_size, gap);
+    const bl = miniGridTilePos(scene_x, top_y, 0, 2, tile_size, gap);
+    const br = miniGridTilePos(scene_x, top_y, 1, 2, tile_size, gap);
+
+    const loop_period: f64 = 3.0;
+    const t = @as(f32, @floatCast(@mod(rl.getTime(), loop_period)));
+    const swap_start: f32 = 0.20;
+    const swap_dur: f32 = 0.46;
+    const swap_end = swap_start + swap_dur;
+    const merge_start: f32 = 0.86;
+    const merge_dur: f32 = 0.40;
+    const merge_end = merge_start + merge_dur;
+
+    const in_swap = t >= swap_start and t < swap_end;
+    const after_swap = t >= swap_end;
+    const in_merge = t >= merge_start and t < merge_end;
+    const after_merge = t >= merge_end;
+
+    drawMiniTile(tl.x, tl.y, tile_size, 4, miniTileColor(4), miniTileTextColor(4));
+    drawMiniTile(bl.x, bl.y, tile_size, 4, miniTileColor(4), miniTileTextColor(4));
+
+    if (!in_merge and !after_merge) {
+        drawMiniTile(tr.x, tr.y, tile_size, 2, miniTileColor(2), miniTileTextColor(2));
+        drawMiniTile(br.x, br.y, tile_size, 2, miniTileColor(2), miniTileTextColor(2));
+    }
+
+    if (in_swap) {
+        const p = easeInOut01((t - swap_start) / swap_dur);
+        const swap_scale = 1.0 + 0.05 * (1.0 - p);
+        drawMiniTileScaled(
+            lerpF32(cl.x, cr.x, p),
+            cl.y,
+            tile_size,
+            swap_scale,
+            2,
+            miniTileColor(2),
+            miniTileTextColor(2),
+        );
+        drawMiniTileScaled(
+            lerpF32(cr.x, cl.x, p),
+            cr.y,
+            tile_size,
+            swap_scale,
+            8,
+            miniTileColor(8),
+            miniTileTextColor(8),
+        );
+    } else if (!after_swap) {
+        drawMiniTile(cl.x, cl.y, tile_size, 2, miniTileColor(2), miniTileTextColor(2));
+        drawMiniTile(cr.x, cr.y, tile_size, 8, miniTileColor(8), miniTileTextColor(8));
+    } else {
+        drawMiniTile(cl.x, cl.y, tile_size, 8, miniTileColor(8), miniTileTextColor(8));
+        if (!in_merge and !after_merge) {
+            drawMiniTile(cr.x, cr.y, tile_size, 2, miniTileColor(2), miniTileTextColor(2));
+        }
+    }
+
+    if (in_merge) {
+        const mp = easeInOut01((t - merge_start) / merge_dur);
+        const match_scale = 1.0 + 0.22 * (1.0 - mp);
+        const match_alpha = 1.0 - mp;
+        drawMiniTileScaledAlpha(tr.x, tr.y, tile_size, match_scale, match_alpha, 2, miniTileColor(2), miniTileTextColor(2));
+        drawMiniTileScaledAlpha(cr.x, cr.y, tile_size, match_scale, match_alpha, 2, miniTileColor(2), miniTileTextColor(2));
+        drawMiniTileScaledAlpha(br.x, br.y, tile_size, match_scale, match_alpha, 2, miniTileColor(2), miniTileTextColor(2));
+
+        const out_alpha = std.math.clamp((mp - 0.45) / 0.55, 0.0, 1.0);
+        const out_scale = 1.08 - 0.08 * out_alpha;
+        drawMiniTileScaledAlpha(cr.x, cr.y, tile_size, out_scale, out_alpha, 4, miniTileColor(4), miniTileTextColor(4));
+    } else if (after_merge) {
+        drawMiniTile(cr.x, cr.y, tile_size, 4, miniTileColor(4), miniTileTextColor(4));
+    }
+
+    rl.drawText(
+        "Swap -> Merge",
+        centeredTextX(box, "Swap -> Merge", 20),
+        @as(i32, @intFromFloat(top_y + board_h + 8.0)),
+        20,
+        ink,
     );
-    rl.drawText("Swap adjacent tiles", @as(i32, @intFromFloat(box.x)) + 58, @as(i32, @intFromFloat(top_y + tile_size + 44.0)), 24, ink);
+
+    // Animation 2: invalid move attempt (4 nudges into 2, then columns shake)
+    const bottom_y = box.y + 214.0;
+    drawMiniBoardBackdrop(scene_x, bottom_y, 2, 3, tile_size, gap);
+    const invalid_values = [_]u32{
+        2, 4,
+        4, 2,
+        8, 2,
+    };
+    const invalid_active_period: f64 = 1.45;
+    const invalid_pause_period: f64 = 1.55;
+    const invalid_loop_period = invalid_active_period + invalid_pause_period;
+    const invalid_loop_t = @mod(rl.getTime(), invalid_loop_period);
+    const invalid_active = invalid_loop_t < invalid_active_period;
+    const invalid_phase = if (invalid_active)
+        @as(f32, @floatCast(invalid_loop_t / invalid_active_period))
+    else
+        1.0;
+    var push: f32 = 0.0;
+    if (invalid_active and invalid_phase < 0.34) {
+        push = 0.42 * easeInOut01(invalid_phase / 0.34);
+    } else if (invalid_active and invalid_phase < 0.50) {
+        push = 0.42 * (1.0 - easeInOut01((invalid_phase - 0.34) / 0.16));
+    }
+    var shake_x: f32 = 0.0;
+    if (invalid_active and invalid_phase >= 0.50) {
+        const shake_t = (invalid_phase - 0.50) / 0.50;
+        const decay = 1.0 - shake_t;
+        shake_x = @as(f32, @floatCast(std.math.sin(shake_t * 50.0))) * 2.3 * decay;
+    }
+    for (0..3) |r| {
+        for (0..2) |c| {
+            if (r == 1 and c == 0) continue;
+            const idx = r * 2 + c;
+            var p = miniGridTilePos(scene_x, bottom_y, c, r, tile_size, gap);
+            p.x += shake_x;
+            const v = invalid_values[idx];
+            drawMiniTile(p.x, p.y, tile_size, v, miniTileColor(v), miniTileTextColor(v));
+        }
+    }
+    var moving = miniGridTilePos(scene_x, bottom_y, 0, 1, tile_size, gap);
+    moving.x += shake_x + push * step;
+    drawMiniTileScaled(moving.x, moving.y, tile_size, 1.0, 4, miniTileColor(4), miniTileTextColor(4));
+    rl.drawText(
+        "Invalid move: no line match",
+        centeredTextX(box, "Invalid move: no line match", 20),
+        @as(i32, @intFromFloat(bottom_y + board_h + 8.0)),
+        20,
+        ink,
+    );
 }
 
 fn drawLineMergeIllustration(box: rl.Rectangle) void {
@@ -284,11 +413,23 @@ fn drawScoringIllustration(box: rl.Rectangle) void {
 }
 
 fn drawMiniTile(x: f32, y: f32, size: f32, value: u32, bg: rl.Color, text_color: rl.Color) void {
-    rl.drawRectangleRec(.{ .x = x, .y = y, .width = size, .height = size }, bg);
+    drawMiniTileAlpha(x, y, size, value, bg, text_color, 1.0);
+}
+
+fn drawMiniTileAlpha(
+    x: f32,
+    y: f32,
+    size: f32,
+    value: u32,
+    bg: rl.Color,
+    text_color: rl.Color,
+    alpha: f32,
+) void {
+    rl.drawRectangleRec(.{ .x = x, .y = y, .width = size, .height = size }, colorWithAlpha(bg, alpha));
     rl.drawRectangleLinesEx(
         .{ .x = x, .y = y, .width = size, .height = size },
         1.0,
-        rl.Color.init(205, 193, 180, 255),
+        colorWithAlpha(rl.Color.init(205, 193, 180, 255), alpha),
     );
     var buf: [16]u8 = undefined;
     const txt = std.fmt.bufPrintZ(&buf, "{d}", .{value}) catch "?";
@@ -301,7 +442,7 @@ fn drawMiniTile(x: f32, y: f32, size: f32, value: u32, bg: rl.Color, text_color:
         @as(i32, @intFromFloat(x + size / 2.0)) - @divTrunc(tw, 2),
         @as(i32, @intFromFloat(y + size / 2.0)) - @divTrunc(fs, 2),
         fs,
-        text_color,
+        colorWithAlpha(text_color, alpha),
     );
 }
 
@@ -322,6 +463,133 @@ fn drawMiniBomb(x: f32, y: f32, size: f32, value: u32) void {
         fs,
         rl.Color.init(249, 246, 242, 255),
     );
+}
+
+fn drawMiniTileScaled(
+    x: f32,
+    y: f32,
+    size: f32,
+    scale: f32,
+    value: u32,
+    bg: rl.Color,
+    text_color: rl.Color,
+) void {
+    drawMiniTileScaledAlpha(x, y, size, scale, 1.0, value, bg, text_color);
+}
+
+fn drawMiniTileScaledAlpha(
+    x: f32,
+    y: f32,
+    size: f32,
+    scale: f32,
+    alpha: f32,
+    value: u32,
+    bg: rl.Color,
+    text_color: rl.Color,
+) void {
+    const scaled = size * scale;
+    const ox = (size - scaled) / 2.0;
+    const oy = (size - scaled) / 2.0;
+    drawMiniTileAlpha(x + ox, y + oy, scaled, value, bg, text_color, alpha);
+}
+
+fn drawMiniBoardBackdrop(
+    x: f32,
+    y: f32,
+    cols: usize,
+    rows: usize,
+    tile_size: f32,
+    gap: f32,
+) void {
+    const w = tile_size * @as(f32, @floatFromInt(cols)) + gap * (@as(f32, @floatFromInt(cols)) + 1.0);
+    const h = tile_size * @as(f32, @floatFromInt(rows)) + gap * (@as(f32, @floatFromInt(rows)) + 1.0);
+    const board_rect = rl.Rectangle{ .x = x, .y = y, .width = w, .height = h };
+    rl.drawRectangleRec(board_rect, rl.Color.init(187, 173, 160, 255));
+    rl.drawRectangleLinesEx(board_rect, 1.0, rl.Color.init(161, 136, 127, 255));
+}
+
+fn miniGridTilePos(
+    origin_x: f32,
+    origin_y: f32,
+    col: usize,
+    row: usize,
+    tile_size: f32,
+    gap: f32,
+) rl.Vector2 {
+    return .{
+        .x = origin_x + gap + @as(f32, @floatFromInt(col)) * (tile_size + gap),
+        .y = origin_y + gap + @as(f32, @floatFromInt(row)) * (tile_size + gap),
+    };
+}
+
+fn cycle01(period_s: f64) f32 {
+    return @as(f32, @floatCast(@mod(rl.getTime(), period_s) / period_s));
+}
+
+fn easeInOut01(t: f32) f32 {
+    const c = std.math.clamp(t, 0.0, 1.0);
+    return c * c * (3.0 - 2.0 * c);
+}
+
+fn lerpF32(a: f32, b: f32, t: f32) f32 {
+    return a + (b - a) * t;
+}
+
+fn drawGuideWrapped(
+    text: []const u8,
+    x: i32,
+    y: i32,
+    font_size: i32,
+    max_width: i32,
+    line_height: i32,
+    color: rl.Color,
+) i32 {
+    var line_buf: [256]u8 = undefined;
+    var line_len: usize = 0;
+    var lines: i32 = 0;
+
+    var words = std.mem.tokenizeScalar(u8, text, ' ');
+    while (words.next()) |word| {
+        var candidate_len = line_len;
+        if (candidate_len != 0) {
+            line_buf[candidate_len] = ' ';
+            candidate_len += 1;
+        }
+        if (candidate_len + word.len >= line_buf.len) continue;
+        @memcpy(line_buf[candidate_len .. candidate_len + word.len], word);
+        candidate_len += word.len;
+        line_buf[candidate_len] = 0;
+
+        if (line_len != 0 and rl.measureText(line_buf[0..candidate_len :0], font_size) > max_width) {
+            line_buf[line_len] = 0;
+            rl.drawText(line_buf[0..line_len :0], x, y + lines * line_height, font_size, color);
+            lines += 1;
+
+            if (word.len >= line_buf.len) continue;
+            @memcpy(line_buf[0..word.len], word);
+            line_len = word.len;
+        } else {
+            line_len = candidate_len;
+        }
+    }
+
+    if (line_len > 0) {
+        line_buf[line_len] = 0;
+        rl.drawText(line_buf[0..line_len :0], x, y + lines * line_height, font_size, color);
+        lines += 1;
+    }
+
+    return @max(lines, 1) * line_height;
+}
+
+fn centeredTextX(rect: rl.Rectangle, text: [:0]const u8, font_size: i32) i32 {
+    const text_w = rl.measureText(text, font_size);
+    return @as(i32, @intFromFloat(rect.x + rect.width / 2.0)) - @divTrunc(text_w, 2);
+}
+
+fn colorWithAlpha(color: rl.Color, alpha: f32) rl.Color {
+    const scaled = @as(i32, @intFromFloat(@as(f32, @floatFromInt(color.a)) * std.math.clamp(alpha, 0.0, 1.0)));
+    return rl.Color.init(color.r, color.g, color.b, @as(u8, @intCast(std.math.clamp(scaled, 0, 255))));
 }
 
 fn drawBidirectionalArrow(x1: f32, y1: f32, x2: f32, y2: f32, color: rl.Color) void {
