@@ -184,11 +184,11 @@ fn drawPageText(page: Page, x: i32, y: i32, max_width: i32, color: rl.Color) voi
             cursor += drawGuideWrapped("Bomb result tile: that 3x3 value pool resolves from lowest to highest; matching pairs merge, and unpaired values are removed until one final tile remains.", x, cursor, 24, max_width, lh, color);
         },
         .shuffle => {
-            cursor += drawGuideWrapped("Manual Shuffle costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("If no moves remain, auto-shuffle", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("runs if any shuffles are left.", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("If moves are gone and shuffles are 0,", x, cursor, 24, max_width, lh, color);
-            _ = drawGuideWrapped("the run ends.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("Shuffle rearranges tiles on the board.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("You can use Shuffle if you're stuck; it costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("If no valid moves remain, auto-shuffle spends 1 shuffle if you have any left.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("You gain +1 shuffle the first time you create a 1024+ tile.", x, cursor, 24, max_width, lh, color);
+            _ = drawGuideWrapped("If no moves remain and shuffles are 0, the run is lost.", x, cursor, 24, max_width, lh, color);
         },
         .scoring => {
             cursor += drawGuideWrapped("Each merged result tile adds score by", x, cursor, 24, max_width, lh, color);
@@ -950,6 +950,11 @@ fn drawBombIllustration(box: rl.Rectangle) void {
 
 fn drawShuffleIllustration(box: rl.Rectangle) void {
     const ink = rl.Color.init(119, 110, 101, 255);
+    const tile_size: f32 = 28.0;
+    const gap: f32 = 5.0;
+    const board_w = tile_size * 4.0 + gap * 5.0;
+    const board_x = box.x + (box.width - board_w) / 2.0;
+    const board_y = box.y + 112.0;
     const board_before = [_]u32{
         2, 4, 2, 4,
         4, 8, 4, 8,
@@ -962,12 +967,71 @@ fn drawShuffleIllustration(box: rl.Rectangle) void {
         4, 2, 8, 2,
         2, 4, 8, 4,
     };
-    rl.drawText("Same values, different layout", @as(i32, @intFromFloat(box.x)) + 18, @as(i32, @intFromFloat(box.y)) + 48, 22, ink);
-    drawSmallBoard4x4(box.x + 10.0, box.y + 92.0, 18.0, 4.0, &board_before);
-    drawSmallBoard4x4(box.x + 188.0, box.y + 92.0, 18.0, 4.0, &board_after);
-    rl.drawText("=>", @as(i32, @intFromFloat(box.x)) + 148, @as(i32, @intFromFloat(box.y)) + 132, 24, ink);
-    rl.drawText("Auto-shuffle spends 1 shuffle", @as(i32, @intFromFloat(box.x)) + 20, @as(i32, @intFromFloat(box.y)) + 250, 22, ink);
-    rl.drawText("when no valid moves remain.", @as(i32, @intFromFloat(box.x)) + 28, @as(i32, @intFromFloat(box.y)) + 280, 22, ink);
+
+    // Map each destination tile to a unique source tile with same value.
+    var src_for_dst: [16]usize = undefined;
+    var used_sources = [_]bool{false} ** 16;
+    for (0..16) |dst| {
+        const v = board_after[dst];
+        var chosen: ?usize = null;
+
+        if (!used_sources[dst] and board_before[dst] == v) {
+            chosen = dst;
+        } else {
+            for (0..16) |src| {
+                if (used_sources[src]) continue;
+                if (board_before[src] != v) continue;
+                chosen = src;
+                break;
+            }
+        }
+
+        const src_idx = chosen orelse dst;
+        used_sources[src_idx] = true;
+        src_for_dst[dst] = src_idx;
+    }
+
+    const period: f64 = 3;
+    const t = @as(f32, @floatCast(pageLoopTime(period)));
+    const move_start: f32 = 0.5;
+    const move_end: f32 = 1.1;
+    const p = if (t < move_start)
+        0.0
+    else if (t < move_end)
+        easeInOut01((t - move_start) / (move_end - move_start))
+    else
+        1.0;
+
+    drawMiniBoardBackdrop(board_x, board_y, 4, 4, tile_size, gap);
+
+    for (0..16) |dst| {
+        const src = src_for_dst[dst];
+        const src_row = src / 4;
+        const src_col = src % 4;
+        const dst_row = dst / 4;
+        const dst_col = dst % 4;
+        const from = miniGridTilePos(board_x, board_y, src_col, src_row, tile_size, gap);
+        const to = miniGridTilePos(board_x, board_y, dst_col, dst_row, tile_size, gap);
+        const value = board_after[dst];
+        const move_scale = if (t >= move_start and t < move_end) 1.0 + 0.04 * (1.0 - p) else 1.0;
+        drawMiniTileScaled(
+            lerpF32(from.x, to.x, p),
+            lerpF32(from.y, to.y, p),
+            tile_size,
+            move_scale,
+            value,
+            miniTileColor(value),
+            miniTileTextColor(value),
+        );
+    }
+
+    rl.drawText(
+        "Same tiles, new positions",
+        centeredTextX(box, "Same tiles, new positions", 20),
+        @as(i32, @intFromFloat(board_y + board_w + 10.0)),
+        20,
+        ink,
+    );
 }
 
 fn drawScoringIllustration(box: rl.Rectangle) void {
