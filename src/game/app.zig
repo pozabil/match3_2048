@@ -7,6 +7,7 @@ const hud = @import("../ui/hud.zig");
 const overlay = @import("../ui/overlay.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
 const menu_ui = @import("../ui/menu.zig");
+const how_to_play = @import("../ui/how_to_play.zig");
 const audio_synth = @import("../audio/synth.zig");
 extern fn emscripten_set_main_loop_arg(
     func: *const fn (?*anyopaque) callconv(.c) void,
@@ -31,7 +32,8 @@ fn frame(runtime: *runtime_mod.Runtime) void {
     hud.drawHUD(&runtime.state, runtime.elapsed_seconds);
     overlay.drawEndOverlay(&runtime.state, runtime.elapsed_seconds);
     restart_confirm.draw(runtime.confirm_action, runtime.confirm_open, runtime.state.shuffles_left);
-    menu_ui.draw(runtime.menu_open, runtime.best_record);
+    menu_ui.draw(runtime.menu_open, runtime.best_record, runtime.sound_enabled);
+    how_to_play.draw(runtime.how_to_play_open, runtime.how_to_play_page);
 }
 
 fn webFrame(ctx: ?*anyopaque) callconv(.c) void {

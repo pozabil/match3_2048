@@ -22,7 +22,10 @@ test "autosave round-trips board, score, and PRNG state" {
 
     // Serialize
     const auto = save_data.serializeToAutosave(&state, elapsed, prng_s);
-    const save_file = save_data.SaveFile{ .autosave = auto };
+    const save_file = save_data.SaveFile{
+        .autosave = auto,
+        .settings = .{ .sound_enabled = false },
+    };
 
     const allocator = std.testing.allocator;
     const json = try save_data.writeToJson(allocator, save_file);
@@ -33,6 +36,8 @@ test "autosave round-trips board, score, and PRNG state" {
     defer parsed.deinit();
 
     const restored_auto = parsed.value.autosave.?;
+    try std.testing.expect(parsed.value.settings != null);
+    try std.testing.expect(!parsed.value.settings.?.sound_enabled);
     var out_state = types.GameState.init(config.defaultConfig());
     var out_elapsed: f64 = 0.0;
     var out_prng: [4]u64 = .{ 0, 0, 0, 0 };
@@ -154,4 +159,5 @@ test "forward compatibility: unknown JSON fields are ignored" {
     defer parsed.deinit();
     try std.testing.expect(parsed.value.record == null);
     try std.testing.expect(parsed.value.autosave == null);
+    try std.testing.expect(parsed.value.settings == null);
 }

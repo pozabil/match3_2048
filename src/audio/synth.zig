@@ -98,6 +98,7 @@ pub const Synth = struct {
     event_read_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     frame_buffer: [BUFFER_FRAMES]f32 = [_]f32{0.0} ** BUFFER_FRAMES,
     in_callback: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    muted: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     pub fn init(self: *Synth, seed: u64, options: InitOptions) void {
         self.deinit();
@@ -169,6 +170,14 @@ pub const Synth = struct {
         return self.enabled;
     }
 
+    pub fn setMuted(self: *Synth, muted: bool) void {
+        self.muted.store(muted, .release);
+    }
+
+    pub fn isMuted(self: *const Synth) bool {
+        return self.muted.load(.acquire);
+    }
+
     pub fn activeVoiceCount(self: *const Synth) usize {
         var count: usize = 0;
         for (self.voices) |voice| {
@@ -217,6 +226,7 @@ pub const Synth = struct {
 
     pub fn trigger(self: *Synth, event: Event) void {
         if (!self.enabled) return;
+        if (self.isMuted()) return;
         self.ensureCallbackOwner();
 
         if (self.uses_stream_callback) {
@@ -228,6 +238,7 @@ pub const Synth = struct {
     }
 
     fn processEvent(self: *Synth, event: Event) void {
+        if (self.isMuted()) return;
         const event_idx = kindIndex(event.kind);
         if (self.cooldowns[event_idx] > 0.0) return;
         self.cooldowns[event_idx] = cooldownDuration(event.kind);
@@ -544,15 +555,21 @@ pub const Synth = struct {
     }
 
     fn mixIntoBuffer(self: *Synth, buffer: []f32) void {
+        const muted = self.isMuted();
         for (buffer) |*dst| {
             var mixed: f32 = 0.0;
 
             for (&self.voices) |*voice| {
-                mixed += self.nextVoiceSample(voice);
+                const sample = self.nextVoiceSample(voice);
+                if (!muted) mixed += sample;
             }
 
-            const clamped = std.math.clamp(mixed * self.master_volume, -1.0, 1.0);
-            dst.* = clamped;
+            if (muted) {
+                dst.* = 0.0;
+            } else {
+                const clamped = std.math.clamp(mixed * self.master_volume, -1.0, 1.0);
+                dst.* = clamped;
+            }
         }
     }
 

@@ -39,10 +39,15 @@ pub const AutosaveJson = struct {
     prng_state: [4]u64,
 };
 
+pub const SettingsJson = struct {
+    sound_enabled: bool = true,
+};
+
 /// Top-level save document. Both fields are optional for forward compatibility.
 pub const SaveFile = struct {
     record: ?RecordJson = null,
     autosave: ?AutosaveJson = null,
+    settings: ?SettingsJson = null,
 };
 
 // ── Serialize ─────────────────────────────────────────────────────────────────

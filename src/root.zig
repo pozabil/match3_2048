@@ -22,6 +22,7 @@ pub const ui = struct {
     pub const animations = @import("ui/animations.zig");
     pub const restart_confirm = @import("ui/restart_confirm.zig");
     pub const menu = @import("ui/menu.zig");
+    pub const how_to_play = @import("ui/how_to_play.zig");
     pub const ui_util = @import("ui/ui_util.zig");
 };
 

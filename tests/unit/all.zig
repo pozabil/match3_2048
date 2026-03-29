@@ -7,4 +7,5 @@ const _match_lines = @import("core/match_lines_test.zig");
 const _anim_phase = @import("ui/animations_phase_test.zig");
 const _layout = @import("ui/layout_test.zig");
 const _hud_timer = @import("ui/hud_timer_test.zig");
+const _how_to_play = @import("ui/how_to_play_test.zig");
 const _audio_synth = @import("audio/synth_test.zig");

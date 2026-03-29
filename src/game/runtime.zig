@@ -9,6 +9,7 @@ const animations = @import("../ui/animations.zig");
 const restart_confirm = @import("../ui/restart_confirm.zig");
 const overlay = @import("../ui/overlay.zig");
 const menu_ui = @import("../ui/menu.zig");
+const how_to_play = @import("../ui/how_to_play.zig");
 const hud = @import("../ui/hud.zig");
 const ui_util = @import("../ui/ui_util.zig");
 const audio_synth = @import("../audio/synth.zig");
@@ -37,6 +38,10 @@ pub const Runtime = struct {
     elapsed_seconds: f64 = 0.0,
     best_record: ?save_data.RecordJson = null,
     menu_open: bool = false,
+    how_to_play_open: bool = false,
+    how_to_play_return_to_menu: bool = false,
+    how_to_play_page: u8 = 0,
+    sound_enabled: bool = true,
     save_dirty: bool = false,
     save_countdown: u2 = 0,
 
@@ -95,6 +100,30 @@ pub const Runtime = struct {
         return self.processEndOverlayTouchInput(touch_down, logical_pos, now);
     }
 
+    pub fn debugHandleManualShuffleRequest(self: *Runtime) void {
+        self.handleManualShuffleRequest();
+    }
+
+    pub fn debugHandleNewGameRequest(self: *Runtime) void {
+        self.handleNewGameRequest();
+    }
+
+    pub fn debugApplyMenuChoice(self: *Runtime, choice: menu_ui.Choice) void {
+        self.applyMenuChoice(choice);
+    }
+
+    pub fn debugOpenHowToPlay(self: *Runtime) void {
+        self.openHowToPlay();
+    }
+
+    pub fn debugDismissHowToPlay(self: *Runtime) void {
+        self.closeHowToPlay();
+    }
+
+    pub fn debugApplyHowToPlayAction(self: *Runtime, action: how_to_play.Action) void {
+        self.applyHowToPlayAction(action);
+    }
+
     pub fn reset(self: *Runtime) void {
         self.state = types.GameState.init(config.defaultConfig());
         self.selected = null;
@@ -102,6 +131,10 @@ pub const Runtime = struct {
         self.pending_state = null;
         self.score_phase_cursor = 0;
         self.confirm_open = false;
+        self.menu_open = false;
+        self.how_to_play_open = false;
+        self.how_to_play_return_to_menu = false;
+        self.how_to_play_page = 0;
         self.touch_down_prev = false;
         self.touch_last_pos = .{ .x = 0.0, .y = 0.0 };
         self.suppress_mouse_until = 0.0;
@@ -139,52 +172,70 @@ pub const Runtime = struct {
             if (self.save_countdown == 0) self.saveToStorage();
         }
 
-        // Menu button opens the menu; Escape toggles it (when not confirming).
-        if (!self.confirm_open) {
-            // Touch: consume tap-release on HUD menu button before gameplay handles it.
-            const touch_count = rl.getTouchPointCount();
-            const touch_down = touch_count > 0;
-            if (touch_down) {
-                self.touch_last_pos = self.logicalTouchPosition(0);
-            }
-            if (!self.menu_open and !touch_down and self.touch_down_prev and
-                hud.hitTestMenuButton(self.touch_last_pos.x, self.touch_last_pos.y))
-            {
+        if (self.confirm_open) {
+            self.handleConfirmInput();
+            return;
+        }
+
+        if (self.how_to_play_open) {
+            self.handleHowToPlayInput();
+            return;
+        }
+
+        if (rl.isKeyPressed(.h)) {
+            self.openHowToPlay();
+            return;
+        }
+        if (rl.isKeyPressed(.r)) {
+            self.handleNewGameRequest();
+            return;
+        }
+
+        // Menu button opens the menu; Escape toggles it.
+        // HUD shuffle button mirrors hotkey S behavior.
+        const touch_count = rl.getTouchPointCount();
+        const touch_down = touch_count > 0;
+        if (touch_down) {
+            self.touch_last_pos = self.logicalTouchPosition(0);
+        }
+        if (!self.menu_open and !touch_down and self.touch_down_prev) {
+            if (hud.hitTestMenuButton(self.touch_last_pos.x, self.touch_last_pos.y)) {
                 self.touch_down_prev = false;
                 self.menu_open = true;
                 self.selected = null;
                 self.drag_start = null;
                 return;
             }
-            const menu_clicked = !self.menu_open and rl.isMouseButtonPressed(.left) and
-                hud.hitTestMenuButton(self.logicalMousePosition().x, self.logicalMousePosition().y);
-            if (menu_clicked or rl.isKeyPressed(.escape)) {
-                self.menu_open = !self.menu_open;
-                self.selected = null;
-                self.drag_start = null;
-                return; // Consume the input — don't let it reach gameplay.
-            }
-            if (self.menu_open) {
-                self.handleMenuInput();
+            if (hud.hitTestShuffleButton(self.touch_last_pos.x, self.touch_last_pos.y)) {
+                self.touch_down_prev = false;
+                self.suppress_mouse_until = rl.getTime() + 0.25;
+                self.handleManualShuffleRequest();
                 return;
             }
         }
 
-        if (!self.confirm_open and !self.anim.isPresenting() and self.state.status == .running and rl.isKeyPressed(.s)) {
-            if (self.state.shuffles_left > 0) {
-                self.confirm_action = .shuffle;
-                self.confirm_open = true;
-                self.selected = null;
-                self.drag_start = null;
-            } else {
-                self.anim.triggerInvalid();
-                self.synth.trigger(.{ .kind = .invalid });
-            }
+        const mouse = self.logicalMousePosition();
+        const menu_clicked = !self.menu_open and rl.isMouseButtonPressed(.left) and
+            hud.hitTestMenuButton(mouse.x, mouse.y);
+        const shuffle_clicked = !self.menu_open and rl.isMouseButtonPressed(.left) and
+            hud.hitTestShuffleButton(mouse.x, mouse.y);
+        if (menu_clicked or rl.isKeyPressed(.escape)) {
+            self.menu_open = !self.menu_open;
+            self.selected = null;
+            self.drag_start = null;
+            return; // Consume the input — don't let it reach gameplay.
+        }
+        if (shuffle_clicked) {
+            self.handleManualShuffleRequest();
+            return;
+        }
+        if (self.menu_open) {
+            self.handleMenuInput();
             return;
         }
 
-        if (self.confirm_open) {
-            self.handleConfirmInput();
+        if (!self.anim.isPresenting() and self.state.status == .running and rl.isKeyPressed(.s)) {
+            self.handleManualShuffleRequest();
             return;
         }
 
@@ -288,6 +339,34 @@ pub const Runtime = struct {
         self.applyMenuChoice(menu_ui.hitTest(mouse.x, mouse.y));
     }
 
+    fn handleHowToPlayInput(self: *Runtime) void {
+        if (rl.isKeyPressed(.escape)) {
+            self.closeHowToPlay();
+            return;
+        }
+
+        const touch_count = rl.getTouchPointCount();
+        const touch_down = touch_count > 0;
+        if (touch_down) {
+            self.touch_last_pos = self.logicalTouchPosition(0);
+        }
+        if (!touch_down and self.touch_down_prev) {
+            self.touch_down_prev = false;
+            self.suppress_mouse_until = rl.getTime() + 0.25;
+            self.applyHowToPlayAction(how_to_play.hitTest(self.touch_last_pos.x, self.touch_last_pos.y, self.how_to_play_page));
+            return;
+        } else {
+            self.touch_down_prev = touch_down;
+        }
+
+        if (rl.getTime() < self.suppress_mouse_until) return;
+
+        if (rl.isMouseButtonPressed(.left)) {
+            const m = self.logicalMousePosition();
+            self.applyHowToPlayAction(how_to_play.hitTest(m.x, m.y, self.how_to_play_page));
+        }
+    }
+
     fn handleEndOverlayInput(self: *Runtime) void {
         const touch_count = rl.getTouchPointCount();
         const touch_down = touch_count > 0;
@@ -323,15 +402,45 @@ pub const Runtime = struct {
 
     fn applyMenuChoice(self: *Runtime, choice: ?menu_ui.Choice) void {
         switch (choice orelse return) {
-            .close => self.menu_open = false,
-            .new_game => {
+            .close => {
                 self.menu_open = false;
-                self.confirm_action = .restart;
-                self.confirm_open = true;
-                self.selected = null;
-                self.drag_start = null;
+                self.how_to_play_open = false;
+                self.how_to_play_return_to_menu = false;
+            },
+            .new_game => {
+                self.handleNewGameRequest();
+            },
+            .toggle_sound => self.setSoundEnabled(!self.sound_enabled),
+            .how_to_play => self.openHowToPlay(),
+        }
+    }
+
+    fn applyHowToPlayAction(self: *Runtime, action: ?how_to_play.Action) void {
+        switch (action orelse return) {
+            .back => self.closeHowToPlay(),
+            .prev => {
+                if (self.how_to_play_page > 0) self.how_to_play_page -= 1;
+            },
+            .next => {
+                if (self.how_to_play_page + 1 < how_to_play.PAGE_COUNT) {
+                    self.how_to_play_page += 1;
+                }
             },
         }
+    }
+
+    fn openHowToPlay(self: *Runtime) void {
+        self.how_to_play_return_to_menu = self.menu_open;
+        self.how_to_play_open = true;
+        self.how_to_play_page = how_to_play.clampPage(self.how_to_play_page);
+        self.selected = null;
+        self.drag_start = null;
+    }
+
+    fn closeHowToPlay(self: *Runtime) void {
+        if (!self.how_to_play_open) return;
+        self.how_to_play_open = false;
+        self.menu_open = self.how_to_play_return_to_menu;
     }
 
     fn handleConfirmInput(self: *Runtime) void {
@@ -389,6 +498,31 @@ pub const Runtime = struct {
         }
     }
 
+    fn handleManualShuffleRequest(self: *Runtime) void {
+        if (self.state.status != .running or self.anim.isPresenting()) return;
+
+        if (self.state.shuffles_left > 0) {
+            self.confirm_action = .shuffle;
+            self.confirm_open = true;
+            self.selected = null;
+            self.drag_start = null;
+            return;
+        }
+
+        self.anim.triggerInvalid();
+        self.synth.trigger(.{ .kind = .invalid });
+    }
+
+    fn handleNewGameRequest(self: *Runtime) void {
+        self.menu_open = false;
+        self.how_to_play_open = false;
+        self.how_to_play_return_to_menu = false;
+        self.confirm_action = .restart;
+        self.confirm_open = true;
+        self.selected = null;
+        self.drag_start = null;
+    }
+
     fn applyManualShuffle(self: *Runtime) void {
         const planned = turn_planner.planManualShuffle(
             &self.state,
@@ -413,6 +547,13 @@ pub const Runtime = struct {
         self.drag_start = null;
         self.commitPendingState(planned);
         self.save_dirty = true; // Shuffles_left changed — autosave on web.
+    }
+
+    fn setSoundEnabled(self: *Runtime, enabled: bool) void {
+        if (self.sound_enabled == enabled) return;
+        self.sound_enabled = enabled;
+        self.synth.setMuted(!enabled);
+        self.save_dirty = true;
     }
 
     fn tryAction(self: *Runtime, from: types.Position, to: types.Position) void {
@@ -593,6 +734,9 @@ pub const Runtime = struct {
                 self.elapsed_seconds,
                 self.prng.s,
             ),
+            .settings = .{
+                .sound_enabled = self.sound_enabled,
+            },
         };
         const json = save_data.writeToJson(fba.allocator(), save_file) catch return;
         storage.save(self.allocator, json) catch {};
@@ -608,6 +752,8 @@ pub const Runtime = struct {
 
         // RecordJson and AutosaveJson contain only value types — safe to copy.
         self.best_record = parsed.value.record;
+        self.sound_enabled = if (parsed.value.settings) |settings| settings.sound_enabled else true;
+        self.synth.setMuted(!self.sound_enabled);
 
         if (parsed.value.autosave) |auto| {
             if (!save_data.validateAutosave(auto)) return;

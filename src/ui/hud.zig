@@ -47,12 +47,28 @@ pub fn drawHUD(state: *const types.GameState, elapsed_seconds: f64) void {
             .{ clock.minutes, clock.seconds },
         ) catch "timer";
     rl.drawText(timer_text, 760, 54, 22, ink);
+    const mouse = ui_util.logicalPointerPosition(rl.getMousePosition());
 
-    rl.drawText("Mouse: click+click or drag    S: shuffle", 46, 70, 20, ink);
+    const shuffle_btn = shuffleButtonRect();
+    const shuffle_hover = pointInRect(mouse.x, mouse.y, shuffle_btn);
+    const shuffle_enabled = state.shuffles_left > 0;
+    const shuffle_color = if (!shuffle_enabled)
+        rl.Color.init(189, 180, 170, 255)
+    else if (shuffle_hover)
+        rl.Color.init(143, 122, 102, 255)
+    else
+        rl.Color.init(161, 136, 127, 255);
+    rl.drawRectangleRec(shuffle_btn, shuffle_color);
+    rl.drawText(
+        "Shuffle",
+        @as(i32, @intFromFloat(shuffle_btn.x)) + 18,
+        @as(i32, @intFromFloat(shuffle_btn.y)) + 8,
+        22,
+        rl.Color.init(249, 246, 242, 255),
+    );
 
     // Menu button (top-right corner)
     const btn = menuButtonRect();
-    const mouse = rl.getMousePosition();
     const hover = mouseInMenuButton(mouse.x, mouse.y);
     const btn_color = if (hover)
         rl.Color.init(143, 122, 102, 255)
@@ -66,10 +82,33 @@ pub fn hitTestMenuButton(mouse_x: f32, mouse_y: f32) bool {
     return mouseInMenuButton(mouse_x, mouse_y);
 }
 
+pub fn hitTestShuffleButton(mouse_x: f32, mouse_y: f32) bool {
+    return hitTestShuffleButtonForScreen(mouse_x, mouse_y, rl.getScreenWidth());
+}
+
+pub fn hitTestShuffleButtonForScreen(mouse_x: f32, mouse_y: f32, screen_width: i32) bool {
+    return pointInRect(mouse_x, mouse_y, shuffleButtonRectForScreen(screen_width));
+}
+
 fn menuButtonRect() rl.Rectangle {
     return .{ .x = 472, .y = 26, .width = 108, .height = 48 };
+}
+
+fn shuffleButtonRect() rl.Rectangle {
+    return shuffleButtonRectForScreen(rl.getScreenWidth());
+}
+
+fn shuffleButtonRectForScreen(screen_width: i32) rl.Rectangle {
+    return .{
+        .x = @as(f32, @floatFromInt(screen_width)) - 142.0,
+        .y = 16.0,
+        .width = 124.0,
+        .height = 40.0,
+    };
 }
 
 fn mouseInMenuButton(x: f32, y: f32) bool {
     return ui_util.pointInRect(x, y, menuButtonRect());
 }
+
+const pointInRect = ui_util.pointInRect;

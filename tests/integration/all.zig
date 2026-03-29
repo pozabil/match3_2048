@@ -5,3 +5,4 @@ const _win_lose = @import("game/win_lose_flow_test.zig");
 const _turn_planner = @import("game/turn_planner_test.zig");
 const _audio_runtime = @import("game/audio_runtime_test.zig");
 const _end_overlay_input = @import("game/end_overlay_input_test.zig");
+const _menu_help_sound_flow = @import("game/menu_help_sound_flow_test.zig");

@@ -23,3 +23,11 @@ test "elapsed clock includes hours" {
     try std.testing.expectEqual(@as(u64, 1), c.minutes);
     try std.testing.expectEqual(@as(u64, 1), c.seconds);
 }
+
+test "shuffle button hit-test for explicit screen width" {
+    const center_hit = hud.hitTestShuffleButtonForScreen(820.0, 28.0, 900);
+    try std.testing.expect(center_hit);
+
+    const miss = hud.hitTestShuffleButtonForScreen(600.0, 28.0, 900);
+    try std.testing.expect(!miss);
+}
