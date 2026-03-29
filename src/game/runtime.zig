@@ -344,6 +344,14 @@ pub const Runtime = struct {
             self.closeHowToPlay();
             return;
         }
+        if (rl.isKeyPressed(.left)) {
+            self.applyHowToPlayAction(.prev);
+            return;
+        }
+        if (rl.isKeyPressed(.right)) {
+            self.applyHowToPlayAction(.next);
+            return;
+        }
 
         const touch_count = rl.getTouchPointCount();
         const touch_down = touch_count > 0;

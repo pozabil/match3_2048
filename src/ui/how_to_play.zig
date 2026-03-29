@@ -179,11 +179,9 @@ fn drawPageText(page: Page, x: i32, y: i32, max_width: i32, color: rl.Color) voi
             _ = drawGuideWrapped("Longer lines usually produce bigger results, and cascades can continue automatically.", x, cursor, 24, max_width, lh, color);
         },
         .bombs => {
-            cursor += drawGuideWrapped("A bomb appears when an intersection has", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("both horizontal 4+ and vertical 4+ lines.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("A bomb appears when an intersection has both horizontal 4+ and vertical 4+ lines.", x, cursor, 24, max_width, lh, color);
             cursor += drawGuideWrapped("Swap with a bomb to explode a 3x3 area.", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("That 3x3 value pool reduces to one tile.", x, cursor, 24, max_width, lh, color);
-            _ = drawGuideWrapped("Score increases by that resulting value.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("Bomb result tile: that 3x3 value pool resolves from lowest to highest; matching pairs merge, and unpaired values are removed until one final tile remains.", x, cursor, 24, max_width, lh, color);
         },
         .shuffle => {
             cursor += drawGuideWrapped("Manual Shuffle costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
@@ -719,23 +717,235 @@ fn drawMiniTrackTile(
 }
 
 fn drawBombIllustration(box: rl.Rectangle) void {
-    const ink = rl.Color.init(119, 110, 101, 255);
-    const two_bg = rl.Color.init(238, 228, 218, 255);
-    drawMiniTile(box.x + 46.0, box.y + 58.0, 34.0, 2, two_bg, ink);
-    drawMiniTile(box.x + 84.0, box.y + 58.0, 34.0, 2, two_bg, ink);
-    drawMiniTile(box.x + 122.0, box.y + 58.0, 34.0, 2, two_bg, ink);
-    drawMiniTile(box.x + 160.0, box.y + 58.0, 34.0, 2, two_bg, ink);
-    drawMiniTile(box.x + 122.0, box.y + 20.0, 34.0, 2, two_bg, ink);
-    drawMiniTile(box.x + 122.0, box.y + 96.0, 34.0, 2, two_bg, ink);
-    drawMiniTile(box.x + 122.0, box.y + 134.0, 34.0, 2, two_bg, ink);
-    drawMiniBomb(box.x + 226.0, box.y + 53.0, 44.0, 8);
-    rl.drawText("H4 + V4 => bomb", @as(i32, @intFromFloat(box.x)) + 58, @as(i32, @intFromFloat(box.y)) + 182, 22, ink);
+    const tile_size: f32 = 28.0;
+    const gap: f32 = 5.0;
+    const board_w = tile_size * 4.0 + gap * 5.0;
+    const board_h = tile_size * 4.0 + gap * 5.0;
+    const scene_x = box.x + (box.width - board_w) / 2.0;
 
-    const pool = [_]u32{ 2, 4, 2, 4, 8, 4, 2, 4, 2 };
-    drawSmallBoard3x3(box.x + 24.0, box.y + 236.0, 18.0, 4.0, &pool);
-    rl.drawText("=>", @as(i32, @intFromFloat(box.x)) + 138, @as(i32, @intFromFloat(box.y)) + 264, 24, ink);
-    drawMiniTile(box.x + 174.0, box.y + 248.0, 44.0, 32, rl.Color.init(242, 177, 121, 255), rl.Color.init(249, 246, 242, 255));
-    rl.drawText("3x3 pool => one tile", @as(i32, @intFromFloat(box.x)) + 24, @as(i32, @intFromFloat(box.y)) + 332, 21, ink);
+    // Animation 1: H4 + V4 intersection produces a bomb.
+    const top_y = box.y + 30.0;
+    const cross_values = [_]u32{
+        2, 8, 2, 4,
+        8, 8, 8, 8,
+        2, 8, 4, 16,
+        4, 8, 2, 2,
+    };
+    const cross_match_mask = [_]bool{
+        false, true, false, false,
+        true,  true, true,  true,
+        false, true, false, false,
+        false, true, false, false,
+    };
+    const cross_after = [_]u32{
+        2, 0,  2, 4,
+        0, 16, 0, 0,
+        2, 0,  4, 16,
+        4, 0,  2, 2,
+    };
+
+    const top_period: f64 = 3.2;
+    const top_t = @as(f32, @floatCast(pageLoopTime(top_period)));
+    const top_match_start: f32 = 0.95;
+    const top_match_end: f32 = 1.38;
+    const top_resolve_end: f32 = 1.85;
+
+    if (top_t < top_match_start) {
+        var hide = [_]bool{false} ** 16;
+        drawMiniBoard4x4StateHidden(scene_x, top_y, tile_size, gap, &cross_values, &hide);
+    } else if (top_t < top_match_end) {
+        const p = easeInOut01((top_t - top_match_start) / (top_match_end - top_match_start));
+        drawMiniBoard4x4StateHidden(scene_x, top_y, tile_size, gap, &cross_values, &cross_match_mask);
+        for (0..4) |r| {
+            for (0..4) |c| {
+                const idx = idx4(r, c);
+                if (!cross_match_mask[idx]) continue;
+                const pos = miniGridTilePos(scene_x, top_y, c, r, tile_size, gap);
+                drawMiniTileScaledAlpha(
+                    pos.x,
+                    pos.y,
+                    tile_size,
+                    1.0 + 0.22 * (1.0 - p),
+                    1.0 - p,
+                    8,
+                    miniTileColor(8),
+                    miniTileTextColor(8),
+                );
+            }
+        }
+    } else if (top_t < top_resolve_end) {
+        const p = easeInOut01((top_t - top_match_end) / (top_resolve_end - top_match_end));
+        var hide = [_]bool{false} ** 16;
+        hide[idx4(1, 1)] = true;
+        drawMiniBoard4x4StateHidden(scene_x, top_y, tile_size, gap, &cross_after, &hide);
+        const bomb_pos = miniGridTilePos(scene_x, top_y, 1, 1, tile_size, gap);
+        drawMiniBombScaledAlpha(
+            bomb_pos.x,
+            bomb_pos.y,
+            tile_size,
+            1.08 - 0.08 * p,
+            std.math.clamp((p - 0.20) / 0.80, 0.0, 1.0),
+            16,
+        );
+    } else {
+        var hide = [_]bool{false} ** 16;
+        drawMiniBoard4x4StateHidden(scene_x, top_y, tile_size, gap, &cross_after, &hide);
+        const bomb_pos = miniGridTilePos(scene_x, top_y, 1, 1, tile_size, gap);
+        drawMiniBomb(bomb_pos.x, bomb_pos.y, tile_size, 16);
+    }
+
+    // Animation 2: swap bomb, reduce 3x3 values, place result on bomb position.
+    const bottom_y = box.y + 216.0;
+    const before_swap = [_]u32{
+        8, 2,  4,  4,
+        4, 16, 2,  2,
+        8, 2,  32, 2,
+        4, 8,  4,  8,
+    };
+    const after_swap = [_]u32{
+        8, 2, 4,  4,
+        4, 2, 16, 2,
+        8, 2, 32, 2,
+        4, 8, 4,  8,
+    };
+    const after_clear = [_]u32{
+        8, 0, 0, 0,
+        4, 0, 0, 0,
+        8, 0, 0, 0,
+        4, 8, 4, 8,
+    };
+    const after_result = [_]u32{
+        8, 0, 0,  0,
+        4, 0, 64, 0,
+        8, 0, 0,  0,
+        4, 8, 4,  8,
+    };
+    const blast_mask = [_]bool{
+        false, true,  true,  true,
+        false, true,  true,  true,
+        false, true,  true,  true,
+        false, false, false, false,
+    };
+    const pool_stages = [_][9]u32{
+        [_]u32{ 2, 2, 2, 2, 2, 4, 4, 16, 32 },
+        [_]u32{ 2, 4, 4, 4, 4, 16, 32, 0, 0 },
+        [_]u32{ 4, 4, 4, 4, 16, 32, 0, 0, 0 },
+        [_]u32{ 8, 8, 16, 32, 0, 0, 0, 0, 0 },
+        [_]u32{ 16, 16, 32, 0, 0, 0, 0, 0, 0 },
+        [_]u32{ 32, 32, 0, 0, 0, 0, 0, 0, 0 },
+        [_]u32{ 64, 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
+    const pool_bomb_idx_stages = [_]isize{ 7, 5, 4, 2, 1, -1, -1 };
+
+    const bomb_from_idx = idx4(1, 1);
+    const bomb_to_idx = idx4(1, 2);
+    const bottom_period: f64 = 8.0;
+    const bt = @as(f32, @floatCast(pageLoopTime(bottom_period)));
+    const swap_start: f32 = 0.70;
+    const swap_end: f32 = 1.10;
+    const blast_end: f32 = 1.58;
+    const reduce_end: f32 = 6.20;
+    const fly_end: f32 = 7.00;
+    const pool_tile_size: f32 = 22.0;
+    const pool_gap: f32 = 3.0;
+
+    if (bt < swap_start) {
+        var hide = [_]bool{false} ** 16;
+        drawMiniBoard4x4StateHidden(scene_x, bottom_y, tile_size, gap, &before_swap, &hide);
+        const bomb_pos = miniGridTilePos(scene_x, bottom_y, 1, 1, tile_size, gap);
+        drawMiniBomb(bomb_pos.x, bomb_pos.y, tile_size, 16);
+    } else if (bt < swap_end) {
+        const p = easeInOut01((bt - swap_start) / (swap_end - swap_start));
+        var hide = [_]bool{false} ** 16;
+        hide[bomb_from_idx] = true;
+        hide[bomb_to_idx] = true;
+        drawMiniBoard4x4StateHidden(scene_x, bottom_y, tile_size, gap, &before_swap, &hide);
+
+        const from = miniGridTilePos(scene_x, bottom_y, 1, 1, tile_size, gap);
+        const to = miniGridTilePos(scene_x, bottom_y, 2, 1, tile_size, gap);
+        drawMiniBombScaledAlpha(lerpF32(from.x, to.x, p), lerpF32(from.y, to.y, p), tile_size, 1.0 + 0.05 * (1.0 - p), 1.0, 16);
+        drawMiniTileScaled(
+            lerpF32(to.x, from.x, p),
+            lerpF32(to.y, from.y, p),
+            tile_size,
+            1.0 + 0.05 * (1.0 - p),
+            2,
+            miniTileColor(2),
+            miniTileTextColor(2),
+        );
+    } else if (bt < blast_end) {
+        const p = easeInOut01((bt - swap_end) / (blast_end - swap_end));
+        drawMiniBoard4x4StateHidden(scene_x, bottom_y, tile_size, gap, &after_swap, &blast_mask);
+
+        for (0..4) |r| {
+            for (0..4) |c| {
+                const idx = idx4(r, c);
+                if (!blast_mask[idx]) continue;
+                const pos = miniGridTilePos(scene_x, bottom_y, c, r, tile_size, gap);
+                if (idx == bomb_to_idx) {
+                    drawMiniBombScaledAlpha(pos.x, pos.y, tile_size, 1.0 + 0.20 * (1.0 - p), 1.0 - p, 16);
+                } else {
+                    drawMiniTileScaledAlpha(
+                        pos.x,
+                        pos.y,
+                        tile_size,
+                        1.0 + 0.20 * (1.0 - p),
+                        1.0 - p,
+                        after_swap[idx],
+                        miniTileColor(after_swap[idx]),
+                        miniTileTextColor(after_swap[idx]),
+                    );
+                }
+            }
+        }
+    } else if (bt < reduce_end) {
+        var hide = [_]bool{false} ** 16;
+        drawMiniBoard4x4StateHidden(scene_x, bottom_y, tile_size, gap, &after_clear, &hide);
+
+        const op_count = pool_stages.len - 1;
+        const progress_total = std.math.clamp(
+            (bt - blast_end) / (reduce_end - blast_end) * @as(f32, @floatFromInt(op_count)),
+            0.0,
+            @as(f32, @floatFromInt(op_count)) - 0.0001,
+        );
+        const op_idx = @as(usize, @intFromFloat(progress_total));
+        const op_p = progress_total - @as(f32, @floatFromInt(op_idx));
+        const pool_y = bottom_y + board_h + 8.0;
+        drawBombPoolTransition(
+            box,
+            pool_y,
+            pool_tile_size,
+            pool_gap,
+            pool_stages[op_idx],
+            pool_stages[op_idx + 1],
+            pool_bomb_idx_stages[op_idx],
+            pool_bomb_idx_stages[op_idx + 1],
+            op_p,
+        );
+    } else if (bt < fly_end) {
+        const p = easeInOut01((bt - reduce_end) / (fly_end - reduce_end));
+        var hide = [_]bool{false} ** 16;
+        hide[bomb_to_idx] = true;
+        drawMiniBoard4x4StateHidden(scene_x, bottom_y, tile_size, gap, &after_result, &hide);
+
+        const pool_y = bottom_y + board_h + 8.0;
+        const src_x = box.x + box.width / 2.0 - pool_tile_size / 2.0;
+        const src_y = pool_y;
+        const dst = miniGridTilePos(scene_x, bottom_y, 2, 1, tile_size, gap);
+        drawMiniTileScaledAlpha(
+            lerpF32(src_x, dst.x, p),
+            lerpF32(src_y, dst.y, p),
+            lerpF32(pool_tile_size, tile_size, p),
+            1.0,
+            1.0,
+            64,
+            miniTileColor(64),
+            miniTileTextColor(64),
+        );
+    } else {
+        var hide = [_]bool{false} ** 16;
+        drawMiniBoard4x4StateHidden(scene_x, bottom_y, tile_size, gap, &after_result, &hide);
+    }
 }
 
 fn drawShuffleIllustration(box: rl.Rectangle) void {
@@ -815,9 +1025,13 @@ fn drawMiniTileAlpha(
 }
 
 fn drawMiniBomb(x: f32, y: f32, size: f32, value: u32) void {
+    drawMiniBombAlpha(x, y, size, value, 1.0);
+}
+
+fn drawMiniBombAlpha(x: f32, y: f32, size: f32, value: u32, alpha: f32) void {
     const rect = rl.Rectangle{ .x = x, .y = y, .width = size, .height = size };
-    rl.drawRectangleRec(rect, rl.Color.init(142, 74, 74, 255));
-    rl.drawRectangleLinesEx(rect, 1.0, rl.Color.init(205, 193, 180, 255));
+    rl.drawRectangleRec(rect, colorWithAlpha(rl.Color.init(142, 74, 74, 255), alpha));
+    rl.drawRectangleLinesEx(rect, 1.0, colorWithAlpha(rl.Color.init(205, 193, 180, 255), alpha));
     var bomb_buf: [24]u8 = undefined;
     const txt = std.fmt.bufPrintZ(&bomb_buf, "B{d}", .{value}) catch "B?";
     const preferred_fs: i32 = if (value < 100) 22 else if (value < 1000) 18 else 16;
@@ -829,8 +1043,22 @@ fn drawMiniBomb(x: f32, y: f32, size: f32, value: u32) void {
         @as(i32, @intFromFloat(x + size / 2.0)) - @divTrunc(tw, 2),
         @as(i32, @intFromFloat(y + size / 2.0)) - @divTrunc(fs, 2),
         fs,
-        rl.Color.init(249, 246, 242, 255),
+        colorWithAlpha(rl.Color.init(249, 246, 242, 255), alpha),
     );
+}
+
+fn drawMiniBombScaledAlpha(
+    x: f32,
+    y: f32,
+    size: f32,
+    scale: f32,
+    alpha: f32,
+    value: u32,
+) void {
+    const scaled = size * scale;
+    const ox = (size - scaled) / 2.0;
+    const oy = (size - scaled) / 2.0;
+    drawMiniBombAlpha(x + ox, y + oy, scaled, value, alpha);
 }
 
 fn drawMiniTileScaled(
@@ -1008,6 +1236,254 @@ fn drawSmallBoard4x4(x: f32, y: f32, tile_size: f32, gap: f32, values: *const [1
             const v = values[idx];
             drawMiniTile(tx, ty, tile_size, v, miniTileColor(v), miniTileTextColor(v));
         }
+    }
+}
+
+fn drawBombPoolStage(
+    box: rl.Rectangle,
+    y: f32,
+    tile_size: f32,
+    gap: f32,
+    values: [9]u32,
+    bomb_idx: isize,
+) void {
+    var compact: [9]u32 = undefined;
+    const count = compactPoolValues(values, &compact);
+    if (count == 0) return;
+
+    const width = tile_size * @as(f32, @floatFromInt(count)) + gap * (@as(f32, @floatFromInt(count)) - 1.0);
+    var x = box.x + (box.width - width) / 2.0;
+
+    for (0..count) |i| {
+        const v = compact[i];
+        drawPoolTileMaybeBomb(x, y, tile_size, 1.0, 1.0, v, isPoolBombIndex(bomb_idx, i));
+        x += tile_size + gap;
+    }
+}
+
+fn drawBombPoolTransition(
+    box: rl.Rectangle,
+    y: f32,
+    tile_size: f32,
+    gap: f32,
+    from_values: [9]u32,
+    to_values: [9]u32,
+    from_bomb_idx: isize,
+    to_bomb_idx: isize,
+    progress_01: f32,
+) void {
+    var from_compact: [9]u32 = undefined;
+    var to_compact: [9]u32 = undefined;
+    const from_count = compactPoolValues(from_values, &from_compact);
+    const to_count = compactPoolValues(to_values, &to_compact);
+    if (from_count == 0 or to_count == 0) return;
+
+    var src_to_dst = [_]isize{-1} ** 9;
+    var dst_src_a = [_]isize{-1} ** 9;
+    var dst_src_b = [_]isize{-1} ** 9;
+    const solved = solvePoolTransitionMapping(
+        from_compact[0..from_count],
+        to_compact[0..to_count],
+        &src_to_dst,
+        &dst_src_a,
+        &dst_src_b,
+    );
+    if (!solved) {
+        drawBombPoolStage(box, y, tile_size, gap, to_values, to_bomb_idx);
+        return;
+    }
+
+    const from_w = tile_size * @as(f32, @floatFromInt(from_count)) + gap * (@as(f32, @floatFromInt(from_count)) - 1.0);
+    const to_w = tile_size * @as(f32, @floatFromInt(to_count)) + gap * (@as(f32, @floatFromInt(to_count)) - 1.0);
+    const start_x_from = box.x + (box.width - from_w) / 2.0;
+    const start_x_to = box.x + (box.width - to_w) / 2.0;
+    const step = tile_size + gap;
+    const p = easeInOut01(progress_01);
+    const merge_move = easeInOut01(std.math.clamp(p / 0.74, 0.0, 1.0));
+    const merge_src_alpha = 1.0 - std.math.clamp((p - 0.42) / 0.34, 0.0, 1.0);
+    const merge_out_alpha = std.math.clamp((p - 0.36) / 0.34, 0.0, 1.0);
+    const merge_settle = easeInOut01(std.math.clamp((p - 0.68) / 0.32, 0.0, 1.0));
+
+    for (0..from_count) |i| {
+        const dst = src_to_dst[i];
+        if (dst < 0) {
+            const fade = std.math.clamp((p - 0.20) / 0.50, 0.0, 1.0);
+            const x_from = start_x_from + @as(f32, @floatFromInt(i)) * step;
+            const v = from_compact[i];
+            drawPoolTileMaybeBomb(
+                x_from,
+                y - 5.0 * fade,
+                tile_size,
+                1.0 - 0.03 * fade,
+                1.0 - fade,
+                v,
+                isPoolBombIndex(from_bomb_idx, i),
+            );
+            continue;
+        }
+
+        const dst_u = @as(usize, @intCast(dst));
+        if (dst_src_b[dst_u] >= 0) continue;
+
+        const x_from = start_x_from + @as(f32, @floatFromInt(i)) * step;
+        const x_to = start_x_to + @as(f32, @floatFromInt(dst_u)) * step;
+        const v = from_compact[i];
+        drawPoolTileMaybeBomb(
+            lerpF32(x_from, x_to, p),
+            y,
+            tile_size,
+            1.0,
+            1.0,
+            v,
+            (isPoolBombIndex(from_bomb_idx, i) or isPoolBombIndex(to_bomb_idx, dst_u)),
+        );
+    }
+
+    for (0..to_count) |j| {
+        const src_a = dst_src_a[j];
+        const src_b = dst_src_b[j];
+        if (src_a < 0 or src_b < 0) continue;
+
+        const ia = @as(usize, @intCast(src_a));
+        const ib = @as(usize, @intCast(src_b));
+        const x_to = start_x_to + @as(f32, @floatFromInt(j)) * step;
+        const x_a = lerpF32(start_x_from + @as(f32, @floatFromInt(ia)) * step, x_to, merge_move);
+        const x_b = lerpF32(start_x_from + @as(f32, @floatFromInt(ib)) * step, x_to, merge_move);
+
+        drawPoolTileMaybeBomb(
+            x_a,
+            y,
+            tile_size,
+            1.0,
+            merge_src_alpha,
+            from_compact[ia],
+            isPoolBombIndex(from_bomb_idx, ia),
+        );
+        drawPoolTileMaybeBomb(
+            x_b,
+            y,
+            tile_size,
+            1.0,
+            merge_src_alpha,
+            from_compact[ib],
+            isPoolBombIndex(from_bomb_idx, ib),
+        );
+        drawPoolTileMaybeBomb(
+            x_to,
+            y,
+            tile_size,
+            1.08 - 0.08 * merge_settle,
+            merge_out_alpha,
+            to_compact[j],
+            isPoolBombIndex(to_bomb_idx, j),
+        );
+    }
+}
+
+fn compactPoolValues(values: [9]u32, out: *[9]u32) usize {
+    var count: usize = 0;
+    for (values) |v| {
+        if (v == 0) continue;
+        out[count] = v;
+        count += 1;
+    }
+    return count;
+}
+
+fn solvePoolTransitionMapping(
+    from: []const u32,
+    to: []const u32,
+    src_to_dst: *[9]isize,
+    dst_src_a: *[9]isize,
+    dst_src_b: *[9]isize,
+) bool {
+    src_to_dst.* = [_]isize{-1} ** 9;
+    dst_src_a.* = [_]isize{-1} ** 9;
+    dst_src_b.* = [_]isize{-1} ** 9;
+    return solvePoolTransitionMappingRec(from, to, 0, 0, src_to_dst, dst_src_a, dst_src_b);
+}
+
+fn solvePoolTransitionMappingRec(
+    from: []const u32,
+    to: []const u32,
+    i: usize,
+    j: usize,
+    src_to_dst: *[9]isize,
+    dst_src_a: *[9]isize,
+    dst_src_b: *[9]isize,
+) bool {
+    if (i == from.len and j == to.len) return true;
+    if (j == to.len) {
+        for (i..from.len) |k| src_to_dst[k] = -1;
+        return true;
+    }
+    if (i >= from.len) return false;
+
+    if (from[i] == to[j]) {
+        const src_backup = src_to_dst.*;
+        const dst_a_backup = dst_src_a.*;
+        const dst_b_backup = dst_src_b.*;
+
+        src_to_dst[i] = @as(isize, @intCast(j));
+        dst_src_a[j] = @as(isize, @intCast(i));
+        dst_src_b[j] = -1;
+        if (solvePoolTransitionMappingRec(from, to, i + 1, j + 1, src_to_dst, dst_src_a, dst_src_b)) return true;
+
+        src_to_dst.* = src_backup;
+        dst_src_a.* = dst_a_backup;
+        dst_src_b.* = dst_b_backup;
+    }
+
+    if (i + 1 < from.len and from[i] == from[i + 1] and from[i] *| 2 == to[j]) {
+        const src_backup = src_to_dst.*;
+        const dst_a_backup = dst_src_a.*;
+        const dst_b_backup = dst_src_b.*;
+
+        src_to_dst[i] = @as(isize, @intCast(j));
+        src_to_dst[i + 1] = @as(isize, @intCast(j));
+        dst_src_a[j] = @as(isize, @intCast(i));
+        dst_src_b[j] = @as(isize, @intCast(i + 1));
+        if (solvePoolTransitionMappingRec(from, to, i + 2, j + 1, src_to_dst, dst_src_a, dst_src_b)) return true;
+
+        src_to_dst.* = src_backup;
+        dst_src_a.* = dst_a_backup;
+        dst_src_b.* = dst_b_backup;
+    }
+
+    {
+        const src_backup = src_to_dst.*;
+        const dst_a_backup = dst_src_a.*;
+        const dst_b_backup = dst_src_b.*;
+
+        src_to_dst[i] = -1;
+        if (solvePoolTransitionMappingRec(from, to, i + 1, j, src_to_dst, dst_src_a, dst_src_b)) return true;
+
+        src_to_dst.* = src_backup;
+        dst_src_a.* = dst_a_backup;
+        dst_src_b.* = dst_b_backup;
+    }
+
+    return false;
+}
+
+fn isPoolBombIndex(bomb_idx: isize, idx: usize) bool {
+    return bomb_idx >= 0 and @as(usize, @intCast(bomb_idx)) == idx;
+}
+
+fn drawPoolTileMaybeBomb(
+    x: f32,
+    y: f32,
+    tile_size: f32,
+    scale: f32,
+    alpha: f32,
+    value: u32,
+    bomb: bool,
+) void {
+    if (alpha <= 0.001) return;
+    if (bomb and value == 16) {
+        drawMiniBombScaledAlpha(x, y, tile_size, scale, alpha, value);
+    } else {
+        drawMiniTileScaledAlpha(x, y, tile_size, scale, alpha, value, miniTileColor(value), miniTileTextColor(value));
     }
 }
 
