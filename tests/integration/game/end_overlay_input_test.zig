@@ -1,6 +1,7 @@
 const std = @import("std");
 const game = @import("match3_2048");
 
+const config = game.core.config;
 const types = game.core.types;
 const runtime_mod = game.game.runtime;
 const overlay = game.ui.overlay;
@@ -20,7 +21,7 @@ test "end overlay mouse click on New Game resets ended run" {
     runtime.state.status = .lost;
     runtime.elapsed_seconds = 123.0;
 
-    const btn = overlay.newGameButtonRectForScreen(900);
+    const btn = overlay.newGameButtonRectForScreen(config.window_width);
     const hit = .{
         .x = btn.x + (btn.width / 2.0),
         .y = btn.y + (btn.height / 2.0),
@@ -39,7 +40,7 @@ test "end overlay mouse click outside New Game does not reset" {
     runtime.state.status = .lost;
     runtime.elapsed_seconds = 77.0;
 
-    const btn = overlay.newGameButtonRectForScreen(900);
+    const btn = overlay.newGameButtonRectForScreen(config.window_width);
     const miss = .{ .x = btn.x - 10.0, .y = btn.y - 10.0 };
 
     runtime.debugHandleEndOverlayMouseClick(miss);
@@ -55,7 +56,7 @@ test "end overlay touch resets only on release over New Game" {
     runtime.state.status = .lost;
     runtime.elapsed_seconds = 45.0;
 
-    const btn = overlay.newGameButtonRectForScreen(900);
+    const btn = overlay.newGameButtonRectForScreen(config.window_width);
     const hit = .{
         .x = btn.x + (btn.width / 2.0),
         .y = btn.y + (btn.height / 2.0),
@@ -77,7 +78,7 @@ test "end overlay touch release outside New Game does not reset" {
     runtime.state.status = .lost;
     runtime.elapsed_seconds = 66.0;
 
-    const btn = overlay.newGameButtonRectForScreen(900);
+    const btn = overlay.newGameButtonRectForScreen(config.window_width);
     const start_inside = .{
         .x = btn.x + (btn.width / 2.0),
         .y = btn.y + (btn.height / 2.0),
@@ -98,7 +99,7 @@ test "end overlay touch release outside New Game does not reset" {
 }
 
 test "overlay New Game hit-test for explicit screen width" {
-    const btn = overlay.newGameButtonRectForScreen(900);
+    const btn = overlay.newGameButtonRectForScreen(config.window_width);
     const inside = .{
         .x = btn.x + 1.0,
         .y = btn.y + 1.0,
@@ -108,6 +109,6 @@ test "overlay New Game hit-test for explicit screen width" {
         .y = btn.y - 1.0,
     };
 
-    try std.testing.expect(overlay.hitTestNewGameButtonForScreen(inside.x, inside.y, 900));
-    try std.testing.expect(!overlay.hitTestNewGameButtonForScreen(outside.x, outside.y, 900));
+    try std.testing.expect(overlay.hitTestNewGameButtonForScreen(inside.x, inside.y, config.window_width));
+    try std.testing.expect(!overlay.hitTestNewGameButtonForScreen(outside.x, outside.y, config.window_width));
 }

@@ -1,3 +1,6 @@
+pub const window_width: i32 = 800;
+pub const window_height: i32 = 720;
+
 pub const GameConfig = struct {
     rows: usize = 8,
     cols: usize = 8,

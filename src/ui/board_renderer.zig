@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const config = @import("../core/config.zig");
 const types = @import("../core/types.zig");
 const animations = @import("animations.zig");
 
@@ -7,7 +8,7 @@ pub const tile_size: i32 = 68;
 pub const tile_gap: i32 = 8;
 pub const board_px: i32 = @as(i32, @intCast(types.BOARD_COLS)) * tile_size +
     (@as(i32, @intCast(types.BOARD_COLS)) + 1) * tile_gap;
-pub const board_x: i32 = (900 - board_px) / 2;
+pub const board_x: i32 = (config.window_width - board_px) / 2;
 pub const board_y: i32 = 92;
 
 pub fn drawBoard(state: *const types.GameState, selected: ?types.Position, anim: *const animations.AnimationState) void {

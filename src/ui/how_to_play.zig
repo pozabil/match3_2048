@@ -455,51 +455,29 @@ fn drawLineMergeIllustration(box: rl.Rectangle) void {
     var phases: [12]MiniPhase = undefined;
     var phase_count: usize = 0;
 
-    var swap_phase = initMiniPhase(.swap, 0.17 * time_scale, initial, "Swap");
+    var swap_phase = initMiniPhase(.swap, 0.17 * time_scale, initial);
     swap_phase.hide[idx4(2, 1)] = true;
     swap_phase.hide[idx4(3, 1)] = true;
     miniPhaseAddTrack(&swap_phase, initial[idx4(2, 1)], 2.0, 1.0, 3.0, 1.0);
     miniPhaseAddTrack(&swap_phase, initial[idx4(3, 1)], 3.0, 1.0, 2.0, 1.0);
     pushMiniPhase(phases[0..], &phase_count, swap_phase);
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_swap, &wave1_mask, 0.13 * time_scale, "Wave 1: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_swap, &wave1_mask, wave1_outcomes[0..], 0.13 * time_scale, "Wave 1: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave1_clear, &after_fall1, 0.22 * time_scale, "Wave 1: fall"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_swap, &wave1_mask, 0.13 * time_scale));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_swap, &wave1_mask, wave1_outcomes[0..], 0.13 * time_scale));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave1_clear, &after_fall1, 0.22 * time_scale));
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall1, &wave2_mask, 0.13 * time_scale, "Wave 2: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall1, &wave2_mask, wave2_outcomes[0..], 0.13 * time_scale, "Wave 2: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave2_clear, &after_fall2, 0.22 * time_scale, "Wave 2: fall"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall1, &wave2_mask, 0.13 * time_scale));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall1, &wave2_mask, wave2_outcomes[0..], 0.13 * time_scale));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave2_clear, &after_fall2, 0.22 * time_scale));
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall2, &wave3_mask, 0.13 * time_scale, "Wave 3: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall2, &wave3_mask, wave3_outcomes[0..], 0.13 * time_scale, "Wave 3: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave3_clear, &after_fall3, 0.22 * time_scale, "Wave 3: fall"));
-    pushMiniPhase(phases[0..], &phase_count, initMiniPhase(.fall_spawn, 1.05 * time_scale, after_fall3, "Result + pause"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall2, &wave3_mask, 0.13 * time_scale));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall2, &wave3_mask, wave3_outcomes[0..], 0.13 * time_scale));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave3_clear, &after_fall3, 0.22 * time_scale));
+    pushMiniPhase(phases[0..], &phase_count, initMiniPhase(.fall_spawn, 1.05 * time_scale, after_fall3));
 
-    var period: f32 = 0.0;
-    for (phases[0..phase_count]) |ph| {
-        period += ph.duration;
-    }
-    const t = @as(f32, @floatCast(pageLoopTime(@as(f64, @floatCast(period)))));
-
-    var active_idx: usize = phase_count - 1;
-    var phase_start: f32 = 0.0;
-    var cursor: f32 = 0.0;
-    for (phases[0..phase_count], 0..) |ph, i| {
-        const phase_end = cursor + ph.duration;
-        if (t < phase_end) {
-            active_idx = i;
-            phase_start = cursor;
-            break;
-        }
-        cursor = phase_end;
-    }
-
-    const active = phases[active_idx];
-    const progress = if (active.duration > 0.0001)
-        std.math.clamp((t - phase_start) / active.duration, 0.0, 1.0)
-    else
-        1.0;
-    drawMiniPhase(board_x, board_y, tile_size, gap, &active, progress);
+    const timeline = computeMiniTimelineState(phases[0..], phase_count);
+    const active = phases[timeline.active_idx];
+    drawMiniPhase(board_x, board_y, tile_size, gap, &active, timeline.progress);
 }
 
 const MiniPhaseKind = enum {
@@ -532,10 +510,54 @@ const MiniPhase = struct {
     track_count: usize,
     score_pops: [16]MiniOutcome,
     score_pop_count: usize,
-    label: [:0]const u8,
 };
 
-fn initMiniPhase(kind: MiniPhaseKind, duration: f32, base: [16]u32, label: [:0]const u8) MiniPhase {
+const MiniTimelineState = struct {
+    period: f32,
+    t: f32,
+    active_idx: usize,
+    phase_start: f32,
+    progress: f32,
+};
+
+fn computeMiniTimelineState(phases: []const MiniPhase, phase_count: usize) MiniTimelineState {
+    std.debug.assert(phase_count > 0);
+
+    var period: f32 = 0.0;
+    for (phases[0..phase_count]) |ph| {
+        period += ph.duration;
+    }
+    const t = @as(f32, @floatCast(pageLoopTime(@as(f64, @floatCast(period)))));
+
+    var active_idx: usize = phase_count - 1;
+    var phase_start: f32 = 0.0;
+    var cursor: f32 = 0.0;
+    for (phases[0..phase_count], 0..) |ph, i| {
+        const phase_end = cursor + ph.duration;
+        if (t < phase_end) {
+            active_idx = i;
+            phase_start = cursor;
+            break;
+        }
+        cursor = phase_end;
+    }
+
+    const active = phases[active_idx];
+    const progress = if (active.duration > 0.0001)
+        std.math.clamp((t - phase_start) / active.duration, 0.0, 1.0)
+    else
+        1.0;
+
+    return .{
+        .period = period,
+        .t = t,
+        .active_idx = active_idx,
+        .phase_start = phase_start,
+        .progress = progress,
+    };
+}
+
+fn initMiniPhase(kind: MiniPhaseKind, duration: f32, base: [16]u32) MiniPhase {
     return .{
         .kind = kind,
         .duration = duration,
@@ -545,7 +567,6 @@ fn initMiniPhase(kind: MiniPhaseKind, duration: f32, base: [16]u32, label: [:0]c
         .track_count = 0,
         .score_pops = undefined,
         .score_pop_count = 0,
-        .label = label,
     };
 }
 
@@ -567,20 +588,14 @@ fn miniPhaseAddTrack(phase: *MiniPhase, value: u32, from_row: f32, from_col: f32
     phase.track_count += 1;
 }
 
-fn miniPhaseAddScorePop(phase: *MiniPhase, row: usize, col: usize, value: u32) void {
-    if (phase.score_pop_count >= phase.score_pops.len) return;
-    phase.score_pops[phase.score_pop_count] = .{ .row = row, .col = col, .value = value };
-    phase.score_pop_count += 1;
-}
-
 fn miniPhaseAddScorePopWithMult(phase: *MiniPhase, row: usize, col: usize, value: u32, mult: u32) void {
     if (phase.score_pop_count >= phase.score_pops.len) return;
     phase.score_pops[phase.score_pop_count] = .{ .row = row, .col = col, .value = value, .mult = mult };
     phase.score_pop_count += 1;
 }
 
-fn buildMiniMatchPhase(base: *const [16]u32, mask: *const [16]bool, duration: f32, label: [:0]const u8) MiniPhase {
-    var phase = initMiniPhase(.match_flash, duration, base.*, label);
+fn buildMiniMatchPhase(base: *const [16]u32, mask: *const [16]bool, duration: f32) MiniPhase {
+    var phase = initMiniPhase(.match_flash, duration, base.*);
     for (0..4) |r| {
         for (0..4) |c| {
             const idx = idx4(r, c);
@@ -606,9 +621,8 @@ fn buildMiniResolvePhase(
     matched_mask: *const [16]bool,
     outcomes: []const MiniOutcome,
     duration: f32,
-    label: [:0]const u8,
 ) MiniPhase {
-    var phase = initMiniPhase(.fall_spawn, duration, base.*, label);
+    var phase = initMiniPhase(.fall_spawn, duration, base.*);
     for (0..16) |i| {
         if (matched_mask[i]) phase.hide[i] = true;
     }
@@ -628,8 +642,8 @@ fn buildMiniResolvePhase(
     return phase;
 }
 
-fn buildMiniFallPhase(before: *const [16]u32, after: *const [16]u32, duration: f32, label: [:0]const u8) MiniPhase {
-    var phase = initMiniPhase(.fall_spawn, duration, after.*, label);
+fn buildMiniFallPhase(before: *const [16]u32, after: *const [16]u32, duration: f32) MiniPhase {
+    var phase = initMiniPhase(.fall_spawn, duration, after.*);
     for (0..4) |col| {
         var used_src = [_]bool{false} ** 4;
 
@@ -1240,69 +1254,49 @@ fn drawScoringIllustration(box: rl.Rectangle) void {
     var phases: [20]MiniPhase = undefined;
     var phase_count: usize = 0;
 
-    var swap_phase = initMiniPhase(.swap, 0.17 * time_scale, initial, "Swap");
+    var swap_phase = initMiniPhase(.swap, 0.17 * time_scale, initial);
     swap_phase.hide[idx4(2, 1)] = true;
     swap_phase.hide[idx4(3, 1)] = true;
     miniPhaseAddTrack(&swap_phase, initial[idx4(2, 1)], 2.0, 1.0, 3.0, 1.0);
     miniPhaseAddTrack(&swap_phase, initial[idx4(3, 1)], 3.0, 1.0, 2.0, 1.0);
     pushMiniPhase(phases[0..], &phase_count, swap_phase);
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_swap, &wave1_mask, match_dur, "Wave 1: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_swap, &wave1_mask, wave1_outcomes[0..], resolve_dur, "Wave 1: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave1_clear, &after_fall1, fall_dur, "Wave 1: fall"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_swap, &wave1_mask, match_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_swap, &wave1_mask, wave1_outcomes[0..], resolve_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave1_clear, &after_fall1, fall_dur));
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall1, &wave2_mask, match_dur, "Wave 2: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall1, &wave2_mask, wave2_outcomes[0..], resolve_dur, "Wave 2: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave2_clear, &after_fall2, fall_dur, "Wave 2: fall"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall1, &wave2_mask, match_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall1, &wave2_mask, wave2_outcomes[0..], resolve_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave2_clear, &after_fall2, fall_dur));
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall2, &wave3_mask, match_dur, "Wave 3: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall2, &wave3_mask, wave3_outcomes[0..], resolve_dur, "Wave 3: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave3_clear, &after_fall3, fall_dur, "Wave 3: fall"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall2, &wave3_mask, match_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall2, &wave3_mask, wave3_outcomes[0..], resolve_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave3_clear, &after_fall3, fall_dur));
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall3, &wave4_mask, match_dur, "Wave 4: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall3, &wave4_mask, wave4_outcomes[0..], resolve_dur, "Wave 4: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave4_clear, &after_fall4, fall_dur, "Wave 4: fall"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall3, &wave4_mask, match_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall3, &wave4_mask, wave4_outcomes[0..], resolve_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave4_clear, &after_fall4, fall_dur));
 
-    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall4, &wave5_mask, match_dur, "Wave 5: match"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall4, &wave5_mask, wave5_outcomes[0..], resolve_dur, "Wave 5: merge"));
-    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave5_clear, &after_fall5, fall_dur, "Wave 5: fall"));
-    pushMiniPhase(phases[0..], &phase_count, initMiniPhase(.fall_spawn, 0.90 * time_scale, after_fall5, "Result + pause"));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniMatchPhase(&after_fall4, &wave5_mask, match_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniResolvePhase(&after_fall4, &wave5_mask, wave5_outcomes[0..], resolve_dur));
+    pushMiniPhase(phases[0..], &phase_count, buildMiniFallPhase(&after_wave5_clear, &after_fall5, fall_dur));
+    pushMiniPhase(phases[0..], &phase_count, initMiniPhase(.fall_spawn, 0.90 * time_scale, after_fall5));
 
-    var period: f32 = 0.0;
-    for (phases[0..phase_count]) |ph| period += ph.duration;
-    const t = @as(f32, @floatCast(pageLoopTime(@as(f64, @floatCast(period)))));
-
-    var active_idx: usize = phase_count - 1;
-    var phase_start: f32 = 0.0;
-    var cursor: f32 = 0.0;
-    for (phases[0..phase_count], 0..) |ph, i| {
-        const phase_end = cursor + ph.duration;
-        if (t < phase_end) {
-            active_idx = i;
-            phase_start = cursor;
-            break;
-        }
-        cursor = phase_end;
-    }
-
-    const active = phases[active_idx];
-    const progress = if (active.duration > 0.0001)
-        std.math.clamp((t - phase_start) / active.duration, 0.0, 1.0)
-    else
-        1.0;
+    const timeline = computeMiniTimelineState(phases[0..], phase_count);
+    const active = phases[timeline.active_idx];
 
     var shown_score: u64 = 0;
     for (phases[0..phase_count], 0..) |ph, i| {
-        if (i >= active_idx) break;
+        if (i >= timeline.active_idx) break;
         shown_score += miniPhaseScoreTotal(&ph);
     }
-    const active_elapsed = t - phase_start;
+    const active_elapsed = timeline.t - timeline.phase_start;
     if (active.score_pop_count > 0 and active_elapsed >= score_pop_delay) {
         shown_score += miniPhaseScoreTotal(&active);
     }
 
     var score_buf: [48]u8 = undefined;
-    const score_txt = std.fmt.bufPrintZ(&score_buf, "Score: {d}", .{shown_score}) catch "Scores: 0";
+    const score_txt = std.fmt.bufPrintZ(&score_buf, "Score: {d}", .{shown_score}) catch "Score: 0";
     const score_fs: i32 = 20;
     const score_x_nudge: i32 = 48;
     rl.drawText(
@@ -1313,7 +1307,7 @@ fn drawScoringIllustration(box: rl.Rectangle) void {
         ink,
     );
 
-    drawMiniPhase(board_x, board_y, tile_size, gap, &active, progress);
+    drawMiniPhase(board_x, board_y, tile_size, gap, &active, timeline.progress);
 
     // Render score pops on an independent local timer parallel to tile phases.
     var score_cursor: f32 = 0.0;
@@ -1322,8 +1316,8 @@ fn drawScoringIllustration(box: rl.Rectangle) void {
             score_cursor += ph.duration;
             continue;
         }
-        var elapsed = t - score_cursor;
-        if (elapsed < 0.0) elapsed += period;
+        var elapsed = timeline.t - score_cursor;
+        if (elapsed < 0.0) elapsed += timeline.period;
         if (elapsed >= score_pop_delay and elapsed <= score_pop_delay + score_pop_duration) {
             const pop_t = (elapsed - score_pop_delay) / score_pop_duration;
             drawMiniPhaseScorePops(board_x, board_y, tile_size, gap, &ph, pop_t);
@@ -1469,10 +1463,6 @@ fn miniGridTilePos(
     };
 }
 
-fn cycle01(period_s: f64) f32 {
-    return @as(f32, @floatCast(@mod(rl.getTime(), period_s) / period_s));
-}
-
 fn easeInOut01(t: f32) f32 {
     const c = std.math.clamp(t, 0.0, 1.0);
     return c * c * (3.0 - 2.0 * c);
@@ -1537,57 +1527,6 @@ fn centeredTextX(rect: rl.Rectangle, text: [:0]const u8, font_size: i32) i32 {
 fn colorWithAlpha(color: rl.Color, alpha: f32) rl.Color {
     const scaled = @as(i32, @intFromFloat(@as(f32, @floatFromInt(color.a)) * std.math.clamp(alpha, 0.0, 1.0)));
     return rl.Color.init(color.r, color.g, color.b, @as(u8, @intCast(std.math.clamp(scaled, 0, 255))));
-}
-
-fn drawBidirectionalArrow(x1: f32, y1: f32, x2: f32, y2: f32, color: rl.Color) void {
-    const head: f32 = 8.0;
-    rl.drawLineEx(.{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, 3.0, color);
-    rl.drawTriangle(
-        .{ .x = x1, .y = y1 },
-        .{ .x = x1 + head, .y = y1 - head * 0.7 },
-        .{ .x = x1 + head, .y = y1 + head * 0.7 },
-        color,
-    );
-    rl.drawTriangle(
-        .{ .x = x2, .y = y2 },
-        .{ .x = x2 - head, .y = y2 - head * 0.7 },
-        .{ .x = x2 - head, .y = y2 + head * 0.7 },
-        color,
-    );
-}
-
-fn drawSmallBoard3x3(x: f32, y: f32, tile_size: f32, gap: f32, values: *const [9]u32) void {
-    const side = tile_size * 3.0 + gap * 4.0;
-    const board_rect = rl.Rectangle{ .x = x, .y = y, .width = side, .height = side };
-    rl.drawRectangleRec(board_rect, rl.Color.init(187, 173, 160, 255));
-    rl.drawRectangleLinesEx(board_rect, 1.0, rl.Color.init(161, 136, 127, 255));
-
-    for (0..3) |r| {
-        for (0..3) |c| {
-            const idx = r * 3 + c;
-            const tx = x + gap + @as(f32, @floatFromInt(c)) * (tile_size + gap);
-            const ty = y + gap + @as(f32, @floatFromInt(r)) * (tile_size + gap);
-            const v = values[idx];
-            drawMiniTile(tx, ty, tile_size, v, miniTileColor(v), miniTileTextColor(v));
-        }
-    }
-}
-
-fn drawSmallBoard4x4(x: f32, y: f32, tile_size: f32, gap: f32, values: *const [16]u32) void {
-    const side = tile_size * 4.0 + gap * 5.0;
-    const board_rect = rl.Rectangle{ .x = x, .y = y, .width = side, .height = side };
-    rl.drawRectangleRec(board_rect, rl.Color.init(187, 173, 160, 255));
-    rl.drawRectangleLinesEx(board_rect, 1.0, rl.Color.init(161, 136, 127, 255));
-
-    for (0..4) |r| {
-        for (0..4) |c| {
-            const idx = r * 4 + c;
-            const tx = x + gap + @as(f32, @floatFromInt(c)) * (tile_size + gap);
-            const ty = y + gap + @as(f32, @floatFromInt(r)) * (tile_size + gap);
-            const v = values[idx];
-            drawMiniTile(tx, ty, tile_size, v, miniTileColor(v), miniTileTextColor(v));
-        }
-    }
 }
 
 fn drawBombPoolStage(
@@ -1838,11 +1777,6 @@ fn drawPoolTileMaybeBomb(
     }
 }
 
-fn drawMiniBoard4x4State(x: f32, y: f32, tile_size: f32, gap: f32, values: *const [16]u32) void {
-    var hide = [_]bool{false} ** 16;
-    drawMiniBoard4x4StateHidden(x, y, tile_size, gap, values, &hide);
-}
-
 fn drawMiniBoard4x4StateHidden(
     x: f32,
     y: f32,
@@ -1861,35 +1795,6 @@ fn drawMiniBoard4x4StateHidden(
             const p = miniGridTilePos(x, y, c, r, tile_size, gap);
             drawMiniTile(p.x, p.y, tile_size, v, miniTileColor(v), miniTileTextColor(v));
         }
-    }
-}
-
-fn drawWaveFlashRow(
-    x: f32,
-    y: f32,
-    tile_size: f32,
-    gap: f32,
-    row: usize,
-    col_start: usize,
-    count: usize,
-    value: u32,
-    progress: f32,
-) void {
-    const scale = 1.0 + 0.22 * (1.0 - progress);
-    const alpha = 1.0 - progress;
-    for (0..count) |i| {
-        const col = col_start + i;
-        const p = miniGridTilePos(x, y, col, row, tile_size, gap);
-        drawMiniTileScaledAlpha(
-            p.x,
-            p.y,
-            tile_size,
-            scale,
-            alpha,
-            value,
-            miniTileColor(value),
-            miniTileTextColor(value),
-        );
     }
 }
 

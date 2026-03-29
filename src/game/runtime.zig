@@ -394,6 +394,7 @@ pub const Runtime = struct {
             self.touch_last_pos = touch_pos;
         }
         if (!touch_down and self.touch_down_prev) {
+            self.touch_last_pos = touch_pos;
             self.applyEndOverlayNewGameAt(self.touch_last_pos);
             self.touch_down_prev = false;
             self.suppress_mouse_until = now + 0.25;

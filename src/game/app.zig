@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const rl = @import("raylib");
 const runtime_mod = @import("runtime.zig");
+const config = @import("../core/config.zig");
 const board_renderer = @import("../ui/board_renderer.zig");
 const hud = @import("../ui/hud.zig");
 const overlay = @import("../ui/overlay.zig");
@@ -44,7 +45,7 @@ fn webFrame(ctx: ?*anyopaque) callconv(.c) void {
 pub fn run(allocator: std.mem.Allocator) !void {
     const is_web = builtin.target.os.tag == .emscripten;
 
-    rl.initWindow(900, 720, "match3_2048");
+    rl.initWindow(config.window_width, config.window_height, "match3_2048");
     defer if (!is_web) rl.closeWindow();
     rl.setExitKey(.null);
     if (!is_web) {

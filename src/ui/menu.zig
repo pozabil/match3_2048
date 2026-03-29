@@ -74,11 +74,11 @@ pub fn draw(open: bool, record: ?save_data.RecordJson, sound_enabled: bool) void
     drawButtonTextCentered(how_to_play_btn, "How to Play", 28, rl.Color.init(249, 246, 242, 255));
 
     // Records section
-    const ry = @as(i32, @intFromFloat(panel.y)) + 252;
+    const ry = @as(i32, @intFromFloat(panel.y)) + 228;
     rl.drawText("Best Record", @as(i32, @intFromFloat(panel.x)) + 28, ry, 26, ink);
     rl.drawLineEx(
-        .{ .x = panel.x + 16, .y = panel.y + 288 },
-        .{ .x = panel.x + panel.width - 16, .y = panel.y + 288 },
+        .{ .x = panel.x + 16, .y = panel.y + 264 },
+        .{ .x = panel.x + panel.width - 16, .y = panel.y + 264 },
         1.0,
         panel_border,
     );
@@ -148,26 +148,26 @@ fn newGameButtonRect(panel: rl.Rectangle) rl.Rectangle {
     return .{
         .x = panel.x + 28,
         .y = panel.y + 90,
-        .width = 196,
-        .height = 56,
+        .width = 216,
+        .height = 104,
     };
 }
 
 fn soundButtonRect(panel: rl.Rectangle) rl.Rectangle {
     return .{
-        .x = panel.x + panel.width - 28 - 196,
+        .x = panel.x + panel.width - 28 - 216,
         .y = panel.y + 90,
-        .width = 196,
-        .height = 56,
+        .width = 216,
+        .height = 48,
     };
 }
 
 fn howToPlayButtonRect(panel: rl.Rectangle) rl.Rectangle {
     return .{
-        .x = panel.x + 28,
-        .y = panel.y + 156,
-        .width = panel.width - 56,
-        .height = 56,
+        .x = panel.x + panel.width - 28 - 216,
+        .y = panel.y + 146,
+        .width = 216,
+        .height = 48,
     };
 }
 

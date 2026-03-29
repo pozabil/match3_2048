@@ -1,6 +1,7 @@
 const std = @import("std");
 const game = @import("match3_2048");
 
+const config = game.core.config;
 const hud = game.ui.hud;
 
 test "elapsed clock floors fractional seconds" {
@@ -25,9 +26,9 @@ test "elapsed clock includes hours" {
 }
 
 test "shuffle button hit-test for explicit screen width" {
-    const center_hit = hud.hitTestShuffleButtonForScreen(820.0, 28.0, 900);
+    const center_hit = hud.hitTestShuffleButtonForScreen(@as(f32, @floatFromInt(config.window_width)) - 80.0, 28.0, config.window_width);
     try std.testing.expect(center_hit);
 
-    const miss = hud.hitTestShuffleButtonForScreen(600.0, 28.0, 900);
+    const miss = hud.hitTestShuffleButtonForScreen(600.0, 28.0, config.window_width);
     try std.testing.expect(!miss);
 }
