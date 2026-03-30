@@ -1120,7 +1120,7 @@ fn drawScoringIllustration(box: rl.Rectangle) void {
     const gap: f32 = 5.0;
     const board_w = tile_size * 4.0 + gap * 5.0;
     const board_x = box.x + (box.width - board_w) / 2.0;
-    const board_y = box.y + 120.0;
+    const board_y = box.y + 112.0;
 
     const initial = [_]u32{
         8,  4, 8, 2,
