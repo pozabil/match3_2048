@@ -28,14 +28,14 @@ pub fn draw(action: Action, open: bool, shuffles_left: u8) void {
         .restart => "Start a New Game?",
         .shuffle => "Shuffle Board?",
     };
-    rl.drawText(title, @as(i32, @intFromFloat(panel.x)) + 48, @as(i32, @intFromFloat(panel.y)) + 34, 40, rl.Color.init(119, 110, 101, 255));
+    drawPanelTextCentered(panel, title, @as(i32, @intFromFloat(panel.y)) + 34, 40, rl.Color.init(119, 110, 101, 255));
 
     var subtitle_buf: [64]u8 = undefined;
     const subtitle = switch (action) {
         .restart => "Current run will be reset.",
         .shuffle => std.fmt.bufPrintZ(&subtitle_buf, "Spend 1 shuffle (left: {d})", .{shuffles_left}) catch "Spend 1 shuffle",
     };
-    rl.drawText(subtitle, @as(i32, @intFromFloat(panel.x)) + 72, @as(i32, @intFromFloat(panel.y)) + 90, 24, rl.Color.init(119, 110, 101, 255));
+    drawPanelTextCentered(panel, subtitle, @as(i32, @intFromFloat(panel.y)) + 90, 24, rl.Color.init(119, 110, 101, 255));
 
     const yes_hover = pointInRect(mouse.x, mouse.y, yes_btn);
     const no_hover = pointInRect(mouse.x, mouse.y, no_btn);
@@ -45,8 +45,9 @@ pub fn draw(action: Action, open: bool, shuffles_left: u8) void {
     rl.drawRectangleRec(yes_btn, yes_color);
     rl.drawRectangleRec(no_btn, no_color);
 
-    rl.drawText("Yes", @as(i32, @intFromFloat(yes_btn.x)) + 52, @as(i32, @intFromFloat(yes_btn.y)) + 20, 34, rl.Color.init(249, 246, 242, 255));
-    rl.drawText("No", @as(i32, @intFromFloat(no_btn.x)) + 64, @as(i32, @intFromFloat(no_btn.y)) + 20, 34, rl.Color.init(249, 246, 242, 255));
+    const btn_text = rl.Color.init(249, 246, 242, 255);
+    drawButtonTextCentered(yes_btn, "Yes", 34, btn_text);
+    drawButtonTextCentered(no_btn, "No", 34, btn_text);
 }
 
 pub fn hitTest(mouse_x: f32, mouse_y: f32) ?Choice {
@@ -83,6 +84,19 @@ fn noButtonRect(panel: rl.Rectangle) rl.Rectangle {
         .width = 150.0,
         .height = 72.0,
     };
+}
+
+fn drawButtonTextCentered(rect: rl.Rectangle, text: [:0]const u8, font_size: i32, color: rl.Color) void {
+    const text_width = rl.measureText(text, font_size);
+    const tx = @as(i32, @intFromFloat(rect.x + rect.width / 2.0)) - @divTrunc(text_width, 2);
+    const ty = @as(i32, @intFromFloat(rect.y + rect.height / 2.0)) - @divTrunc(font_size, 2);
+    rl.drawText(text, tx, ty, font_size, color);
+}
+
+fn drawPanelTextCentered(panel: rl.Rectangle, text: [:0]const u8, y: i32, font_size: i32, color: rl.Color) void {
+    const text_width = rl.measureText(text, font_size);
+    const tx = @as(i32, @intFromFloat(panel.x + panel.width / 2.0)) - @divTrunc(text_width, 2);
+    rl.drawText(text, tx, y, font_size, color);
 }
 
 const pointInRect = ui_util.pointInRect;

@@ -54,7 +54,7 @@ pub fn draw(open: bool, page_index: u8) void {
     drawActionButton(back_btn, "Back", true, ui_util.pointInRect(mouse.x, mouse.y, back_btn));
 
     const title_x = @as(i32, @intFromFloat(panel.x)) + 354;
-    const title_y = @as(i32, @intFromFloat(panel.y)) + 96;
+    const title_y = @as(i32, @intFromFloat(panel.y)) + 98;
     const text_right = @as(i32, @intFromFloat(panel.x + panel.width)) - 30;
     const text_max_width = text_right - title_x;
     rl.drawText(pageTitle(page), title_x, title_y, 32, ink);
@@ -109,7 +109,7 @@ pub fn hitTestForScreen(mouse_x: f32, mouse_y: f32, page_index: u8, screen_width
 }
 
 pub fn panelRectForScreen(screen_width: i32, screen_height: i32) rl.Rectangle {
-    const w: f32 = 820.0;
+    const w: f32 = 752.0;
     const h: f32 = 610.0;
     const x = (@as(f32, @floatFromInt(screen_width)) - w) / 2.0;
     const y = (@as(f32, @floatFromInt(screen_height)) - h) / 2.0;
@@ -180,13 +180,11 @@ fn drawPageText(page: Page, x: i32, y: i32, max_width: i32, color: rl.Color) voi
             _ = drawGuideWrapped("Reach 2048+ to win.", x, cursor, 24, max_width, lh, color);
         },
         .bombs => {
-            cursor += drawGuideWrapped("A bomb appears when an intersection has both horizontal 4+ and vertical 4+ lines.", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("Swap with a bomb to explode a 3x3 area.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("A bomb appears when an intersection has both horizontal 4+ and vertical 4+ lines. Swap with a bomb to explode a 3x3 area.", x, cursor, 24, max_width, lh, color);
             cursor += drawGuideWrapped("Bomb result tile: that 3x3 value pool resolves from lowest to highest; matching pairs merge, and unpaired values are removed until one final tile remains.", x, cursor, 24, max_width, lh, color);
         },
         .shuffle => {
-            cursor += drawGuideWrapped("Shuffle rearranges tiles on the board.", x, cursor, 24, max_width, lh, color);
-            cursor += drawGuideWrapped("You can use Shuffle if you're stuck; it costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("Shuffle rearranges tiles on the board. You can use Shuffle if you're stuck; it costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
             cursor += drawGuideWrapped("If no valid moves remain, auto-shuffle spends 1 shuffle if you have any left.", x, cursor, 24, max_width, lh, color);
             cursor += drawGuideWrapped("You gain +1 shuffle the first time you create a 1024+ tile.", x, cursor, 24, max_width, lh, color);
             _ = drawGuideWrapped("If no moves remain and shuffles are 0, the run is lost.", x, cursor, 24, max_width, lh, color);

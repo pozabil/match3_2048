@@ -33,7 +33,7 @@ pub fn draw(open: bool, record: ?save_data.RecordJson, sound_enabled: bool) void
     const close_color = if (close_hover)
         rl.Color.init(220, 120, 100, 255)
     else
-        rl.Color.init(187, 173, 160, 255);
+        rl.Color.init(235, 140, 120, 255);
     rl.drawRectangleRec(close_btn, close_color);
     rl.drawText("[X]", @as(i32, @intFromFloat(close_btn.x)) + 28, @as(i32, @intFromFloat(close_btn.y)) + 14, 20, rl.Color.init(249, 246, 242, 255));
 

@@ -22,15 +22,17 @@ pub fn elapsedClock(elapsed_seconds: f64) ElapsedClock {
 pub fn drawHUD(state: *const types.GameState, elapsed_seconds: f64) void {
     const ink = rl.Color.init(119, 110, 101, 255);
 
-    rl.drawText("MATCH3 2048", 46, 18, 40, ink);
+    const title_x: i32 = 36;
+    const title_y: i32 = 18;
+    rl.drawText("MATCH3 2048", title_x, title_y, 40, ink);
 
     var score_buf: [96]u8 = undefined;
     const score_text = std.fmt.bufPrintZ(&score_buf, "Score: {d}", .{state.score}) catch "score";
-    rl.drawText(score_text, 610, 24, 26, ink);
+    rl.drawText(score_text, 604, 24, 26, ink);
 
     var shuffle_buf: [96]u8 = undefined;
     const shuffle_text = std.fmt.bufPrintZ(&shuffle_buf, "Shuffles: {d}", .{state.shuffles_left}) catch "shf";
-    rl.drawText(shuffle_text, 610, 54, 22, ink);
+    rl.drawText(shuffle_text, 604, 54, 22, ink);
 
     const clock = elapsedClock(elapsed_seconds);
     var timer_buf: [96]u8 = undefined;
@@ -46,7 +48,7 @@ pub fn drawHUD(state: *const types.GameState, elapsed_seconds: f64) void {
             "Time: {d:0>2}:{d:0>2}",
             .{ clock.minutes, clock.seconds },
         ) catch "timer";
-    rl.drawText(timer_text, 760, 54, 22, ink);
+    rl.drawText(timer_text, title_x, title_y + 42, 22, ink);
     const mouse = ui_util.logicalPointerPosition(rl.getMousePosition());
 
     const shuffle_btn = shuffleButtonRect();
@@ -61,8 +63,8 @@ pub fn drawHUD(state: *const types.GameState, elapsed_seconds: f64) void {
     rl.drawRectangleRec(shuffle_btn, shuffle_color);
     rl.drawText(
         "Shuffle",
-        @as(i32, @intFromFloat(shuffle_btn.x)) + 18,
-        @as(i32, @intFromFloat(shuffle_btn.y)) + 8,
+        @as(i32, @intFromFloat(shuffle_btn.x)) + 12,
+        @as(i32, @intFromFloat(shuffle_btn.y)) + 12,
         22,
         rl.Color.init(249, 246, 242, 255),
     );
@@ -75,7 +77,13 @@ pub fn drawHUD(state: *const types.GameState, elapsed_seconds: f64) void {
     else
         rl.Color.init(161, 136, 127, 255);
     rl.drawRectangleRec(btn, btn_color);
-    rl.drawText("Menu", @as(i32, @intFromFloat(btn.x)) + 24, @as(i32, @intFromFloat(btn.y)) + 14, 24, rl.Color.init(249, 246, 242, 255));
+    rl.drawText(
+        "Menu",
+        @as(i32, @intFromFloat(btn.x)) + 28,
+        @as(i32, @intFromFloat(btn.y)) + 12,
+        28,
+        rl.Color.init(249, 246, 242, 255),
+    );
 }
 
 pub fn hitTestMenuButton(mouse_x: f32, mouse_y: f32) bool {
@@ -91,7 +99,12 @@ pub fn hitTestShuffleButtonForScreen(mouse_x: f32, mouse_y: f32, screen_width: i
 }
 
 fn menuButtonRect() rl.Rectangle {
-    return .{ .x = 472, .y = 26, .width = 108, .height = 48 };
+    return .{
+        .x = 460,
+        .y = 24,
+        .width = 124,
+        .height = 52,
+    };
 }
 
 fn shuffleButtonRect() rl.Rectangle {
@@ -99,11 +112,12 @@ fn shuffleButtonRect() rl.Rectangle {
 }
 
 fn shuffleButtonRectForScreen(screen_width: i32) rl.Rectangle {
+    _ = screen_width;
     return .{
-        .x = @as(f32, @floatFromInt(screen_width)) - 142.0,
-        .y = 16.0,
-        .width = 124.0,
-        .height = 40.0,
+        .x = 336.0,
+        .y = 28.0,
+        .width = 104.0,
+        .height = 44.0,
     };
 }
 
