@@ -202,7 +202,8 @@ pub const Runtime = struct {
         // Menu button opens the menu; Escape toggles it.
         // HUD shuffle button mirrors hotkey S behavior.
         if (!self.menu_open) {
-            if (self.pollUiActivation(.peek, false)) |activation| {
+            const presenting = self.anim.isPresenting();
+            if (self.pollUiActivation(.peek, presenting)) |activation| {
                 if (hud.hitTestMenuButton(activation.pos.x, activation.pos.y)) {
                     self.consumeUiActivation(activation);
                     self.menu_open = true;
@@ -214,6 +215,11 @@ pub const Runtime = struct {
                     self.consumeUiActivation(activation);
                     self.handleManualShuffleRequest();
                     return;
+                }
+                // During cascade animation gameplay touch handling is skipped,
+                // so consume unhandled touch releases here to avoid stale repeats.
+                if (presenting and activation.kind == .touch_release) {
+                    self.consumeUiActivation(activation);
                 }
             }
         }
