@@ -18,6 +18,14 @@ const storage = @import("../persistence/storage.zig");
 const MAX_PHASE_AUDIO_STEP: f32 = 0.05;
 
 pub const Runtime = struct {
+    const UiActivationKind = enum { mouse_press, touch_release };
+    const UiActivation = struct {
+        kind: UiActivationKind,
+        pos: rl.Vector2,
+        now: f64,
+    };
+    const TouchReleasePolicy = enum { peek, consume };
+
     allocator: std.mem.Allocator,
     prng: std.Random.DefaultPrng,
     state: types.GameState,
@@ -193,41 +201,28 @@ pub const Runtime = struct {
 
         // Menu button opens the menu; Escape toggles it.
         // HUD shuffle button mirrors hotkey S behavior.
-        const touch_count = rl.getTouchPointCount();
-        const touch_down = touch_count > 0;
-        if (touch_down) {
-            self.touch_last_pos = self.logicalTouchPosition(0);
-        }
-        if (!self.menu_open and !touch_down and self.touch_down_prev) {
-            if (hud.hitTestMenuButton(self.touch_last_pos.x, self.touch_last_pos.y)) {
-                self.touch_down_prev = false;
-                self.menu_open = true;
-                self.selected = null;
-                self.drag_start = null;
-                return;
-            }
-            if (hud.hitTestShuffleButton(self.touch_last_pos.x, self.touch_last_pos.y)) {
-                self.touch_down_prev = false;
-                self.suppress_mouse_until = rl.getTime() + 0.25;
-                self.handleManualShuffleRequest();
-                return;
+        if (!self.menu_open) {
+            if (self.pollUiActivation(.peek, false)) |activation| {
+                if (hud.hitTestMenuButton(activation.pos.x, activation.pos.y)) {
+                    self.consumeUiActivation(activation);
+                    self.menu_open = true;
+                    self.selected = null;
+                    self.drag_start = null;
+                    return;
+                }
+                if (hud.hitTestShuffleButton(activation.pos.x, activation.pos.y)) {
+                    self.consumeUiActivation(activation);
+                    self.handleManualShuffleRequest();
+                    return;
+                }
             }
         }
 
-        const mouse = self.logicalMousePosition();
-        const menu_clicked = !self.menu_open and rl.isMouseButtonPressed(.left) and
-            hud.hitTestMenuButton(mouse.x, mouse.y);
-        const shuffle_clicked = !self.menu_open and rl.isMouseButtonPressed(.left) and
-            hud.hitTestShuffleButton(mouse.x, mouse.y);
-        if (menu_clicked or rl.isKeyPressed(.escape)) {
+        if (rl.isKeyPressed(.escape)) {
             self.menu_open = !self.menu_open;
             self.selected = null;
             self.drag_start = null;
             return; // Consume the input — don't let it reach gameplay.
-        }
-        if (shuffle_clicked) {
-            self.handleManualShuffleRequest();
-            return;
         }
         if (self.menu_open) {
             self.handleMenuInput();
@@ -316,27 +311,9 @@ pub const Runtime = struct {
     }
 
     fn handleMenuInput(self: *Runtime) void {
-        // Touch input — mirrors handleConfirmInput touch pattern.
-        const touch_count = rl.getTouchPointCount();
-        const touch_down = touch_count > 0;
-        if (touch_down) {
-            self.touch_last_pos = self.logicalTouchPosition(0);
+        if (self.pollUiActivation(.consume, true)) |activation| {
+            self.applyMenuChoice(menu_ui.hitTest(activation.pos.x, activation.pos.y));
         }
-        if (!touch_down and self.touch_down_prev) {
-            self.touch_down_prev = false;
-            self.suppress_mouse_until = rl.getTime() + 0.25;
-            self.applyMenuChoice(menu_ui.hitTest(self.touch_last_pos.x, self.touch_last_pos.y));
-            return;
-        } else {
-            self.touch_down_prev = touch_down;
-        }
-
-        if (rl.getTime() < self.suppress_mouse_until) return;
-
-        // Mouse input.
-        if (!rl.isMouseButtonPressed(.left)) return;
-        const mouse = self.logicalMousePosition();
-        self.applyMenuChoice(menu_ui.hitTest(mouse.x, mouse.y));
     }
 
     fn handleHowToPlayInput(self: *Runtime) void {
@@ -353,39 +330,14 @@ pub const Runtime = struct {
             return;
         }
 
-        const touch_count = rl.getTouchPointCount();
-        const touch_down = touch_count > 0;
-        if (touch_down) {
-            self.touch_last_pos = self.logicalTouchPosition(0);
-        }
-        if (!touch_down and self.touch_down_prev) {
-            self.touch_down_prev = false;
-            self.suppress_mouse_until = rl.getTime() + 0.25;
-            self.applyHowToPlayAction(how_to_play.hitTest(self.touch_last_pos.x, self.touch_last_pos.y, self.how_to_play_page));
-            return;
-        } else {
-            self.touch_down_prev = touch_down;
-        }
-
-        if (rl.getTime() < self.suppress_mouse_until) return;
-
-        if (rl.isMouseButtonPressed(.left)) {
-            const m = self.logicalMousePosition();
-            self.applyHowToPlayAction(how_to_play.hitTest(m.x, m.y, self.how_to_play_page));
+        if (self.pollUiActivation(.consume, true)) |activation| {
+            self.applyHowToPlayAction(how_to_play.hitTest(activation.pos.x, activation.pos.y, self.how_to_play_page));
         }
     }
 
     fn handleEndOverlayInput(self: *Runtime) void {
-        const touch_count = rl.getTouchPointCount();
-        const touch_down = touch_count > 0;
-        const touch_pos = if (touch_down) self.logicalTouchPosition(0) else self.touch_last_pos;
-        const now = rl.getTime();
-        if (self.processEndOverlayTouchInput(touch_down, touch_pos, now)) return;
-
-        if (now < self.suppress_mouse_until) return;
-
-        if (rl.isMouseButtonPressed(.left)) {
-            self.applyEndOverlayNewGameAt(self.logicalMousePosition());
+        if (self.pollUiActivation(.consume, true)) |activation| {
+            self.applyEndOverlayNewGameAt(activation.pos);
         }
     }
 
@@ -463,38 +415,60 @@ pub const Runtime = struct {
             return;
         }
 
+        if (self.pollUiActivation(.consume, true)) |activation| {
+            if (restart_confirm.hitTest(activation.pos.x, activation.pos.y)) |choice| {
+                switch (choice) {
+                    .yes => self.applyConfirmedAction(),
+                    .no => self.confirm_open = false,
+                }
+            }
+        }
+    }
+
+    fn pollUiActivation(
+        self: *Runtime,
+        touch_release_policy: TouchReleasePolicy,
+        track_touch_down: bool,
+    ) ?UiActivation {
         const touch_count = rl.getTouchPointCount();
         const touch_down = touch_count > 0;
+        const now = rl.getTime();
+
         if (touch_down) {
             self.touch_last_pos = self.logicalTouchPosition(0);
-        }
-        if (!touch_down and self.touch_down_prev) {
-            if (restart_confirm.hitTest(self.touch_last_pos.x, self.touch_last_pos.y)) |choice| {
-                switch (choice) {
-                    .yes => self.applyConfirmedAction(),
-                    .no => self.confirm_open = false,
-                }
-                self.touch_down_prev = false;
-                self.suppress_mouse_until = rl.getTime() + 0.25;
-                return;
-            }
-            self.touch_down_prev = false;
-            self.suppress_mouse_until = rl.getTime() + 0.25;
-        } else {
-            self.touch_down_prev = touch_down;
+            if (track_touch_down) self.touch_down_prev = true;
+            return null;
         }
 
-        if (rl.getTime() < self.suppress_mouse_until) return;
+        if (self.touch_down_prev) {
+            const activation = UiActivation{
+                .kind = .touch_release,
+                .pos = self.touch_last_pos,
+                .now = now,
+            };
+            if (touch_release_policy == .consume) {
+                self.consumeUiActivation(activation);
+            }
+            return activation;
+        }
+
+        if (now < self.suppress_mouse_until) return null;
 
         if (rl.isMouseButtonPressed(.left)) {
-            const m = self.logicalMousePosition();
-            if (restart_confirm.hitTest(m.x, m.y)) |choice| {
-                switch (choice) {
-                    .yes => self.applyConfirmedAction(),
-                    .no => self.confirm_open = false,
-                }
-            }
+            return UiActivation{
+                .kind = .mouse_press,
+                .pos = self.logicalMousePosition(),
+                .now = now,
+            };
         }
+
+        return null;
+    }
+
+    fn consumeUiActivation(self: *Runtime, activation: UiActivation) void {
+        if (activation.kind != .touch_release) return;
+        self.touch_down_prev = false;
+        self.suppress_mouse_until = activation.now + 0.25;
     }
 
     fn applyConfirmedAction(self: *Runtime) void {

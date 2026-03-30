@@ -1,4 +1,4 @@
-pub const window_width: i32 = 800;
+pub const window_width: i32 = 864;
 pub const window_height: i32 = 720;
 
 pub const GameConfig = struct {

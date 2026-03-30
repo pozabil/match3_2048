@@ -109,7 +109,7 @@ pub fn hitTestForScreen(mouse_x: f32, mouse_y: f32, page_index: u8, screen_width
 }
 
 pub fn panelRectForScreen(screen_width: i32, screen_height: i32) rl.Rectangle {
-    const w: f32 = 752.0;
+    const w: f32 = 768.0;
     const h: f32 = 610.0;
     const x = (@as(f32, @floatFromInt(screen_width)) - w) / 2.0;
     const y = (@as(f32, @floatFromInt(screen_height)) - h) / 2.0;
@@ -184,7 +184,8 @@ fn drawPageText(page: Page, x: i32, y: i32, max_width: i32, color: rl.Color) voi
             cursor += drawGuideWrapped("Bomb result tile: that 3x3 value pool resolves from lowest to highest; matching pairs merge, and unpaired values are removed until one final tile remains.", x, cursor, 24, max_width, lh, color);
         },
         .shuffle => {
-            cursor += drawGuideWrapped("Shuffle rearranges tiles on the board. You can use Shuffle if you're stuck; it costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("Shuffle rearranges tiles on the board.", x, cursor, 24, max_width, lh, color);
+            cursor += drawGuideWrapped("You can use Shuffle if you're stuck; it costs 1 shuffle.", x, cursor, 24, max_width, lh, color);
             cursor += drawGuideWrapped("If no valid moves remain, auto-shuffle spends 1 shuffle if you have any left.", x, cursor, 24, max_width, lh, color);
             cursor += drawGuideWrapped("You gain +1 shuffle the first time you create a 1024+ tile.", x, cursor, 24, max_width, lh, color);
             _ = drawGuideWrapped("If no moves remain and shuffles are 0, the run is lost.", x, cursor, 24, max_width, lh, color);
